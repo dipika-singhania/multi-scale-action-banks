@@ -1,0 +1,1 @@
+CUDA_AVAILABLE_DEVICES=7 python main.py  train data models /mnt/data/epic_kitchen/data/ --modality obj --task anticipation --past_sec 15 --rel_sec 1 --current_seconds 3 --current_seconds2 2 --current_seconds3 1 --video_feat_dim 352 --batch_size 40 --latent_dim 256 --linear_dim 256 --dropout_rate 0.8 --dropout_rate_linear 0.8 |& tee run_config9_output
