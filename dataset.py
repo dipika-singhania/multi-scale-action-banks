@@ -265,8 +265,8 @@ class SequenceDataset(data.Dataset):
         """ Samples a sequence for each action and populates the lists. """
         for _, a in tqdm(self.annotations.iterrows(), 'Populating Dataset', total = len(self.annotations)):
             count += 1
-            if count >10:
-                break
+            """if count >10:
+                break"""
             # sample frames before the beginning of the action
             current_f, past_f = self.__get_action_bank_features(a.start, a.video)
             
