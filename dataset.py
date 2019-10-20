@@ -41,13 +41,13 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
     current = []
     past    = []
 
-    recent_features = []
+    recent_features  = []
     recent_features1 = []
     recent_features2 = []
     recent_features3 = []
-    past_features = []
-    past_features1 = []
-    past_features2 = []
+    past_features    = []
+    past_features1   = []
+    past_features2   = []
     for e in env:
         recent_features.append(get_max_pooled_features(e, recent_frames[0]))
         recent_features1.append(get_max_pooled_features(e, recent_frames[1]))
@@ -58,13 +58,13 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
         past_features1.append(get_max_pooled_features(e, past_frames[1]))
         past_features2.append(get_max_pooled_features(e, past_frames[2]))
 
-    recent_features = np.concatenate(recent_features, axis=-1)
+    recent_features  = np.concatenate(recent_features, axis=-1)
     recent_features1 = np.concatenate(recent_features1, axis=-1)
     recent_features2 = np.concatenate(recent_features2, axis=-1)
     recent_features3 = np.concatenate(recent_features3, axis=-1)
-    past_features = np.concatenate(past_features, axis=-1)
-    past_features1 = np.concatenate(past_features1, axis=-1)
-    past_features2 = np.concatenate(past_features2, axis=-1)
+    past_features    = np.concatenate(past_features, axis=-1)
+    past_features1   = np.concatenate(past_features1, axis=-1)
+    past_features2   = np.concatenate(past_features2, axis=-1)
 
     if max_pool == True:
         # print("Max pooling features")

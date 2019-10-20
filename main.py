@@ -131,7 +131,7 @@ def get_loader(mode, override_modality = None):
         'time_step': args.alpha,
         'img_tmpl': args.img_tmpl,
         'past_features': args.task == 'anticipation',
-        'sequence_length': 1, #args.S_enc + args.S_ant,
+        'sequence_length': 1,
         'label_type': ['verb', 'noun', 'action'] if args.mode != 'train' else 'action',
         'challenge': 'test' in mode,
         'args': args
