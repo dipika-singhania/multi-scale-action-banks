@@ -3,11 +3,11 @@ from torch import nn
 from torch.nn import functional as F
 
 class NONLocalBlock1D(nn.Module):
-    def __init__(self, args, in_dim_curr, in_dim_past, latent_dim):
+    def __init__(self, args, dim_curr, dim_past, latent_dim):
         super(NONLocalBlock1D, self).__init__()
 
-        self.in_dim1 = in_dim_curr
-        self.in_dim2 = in_dim_past
+        self.in_dim1 = dim_curr
+        self.in_dim2 = dim_past
         self.latent_dim =  latent_dim
 
         self.scale = args.scale
@@ -71,7 +71,7 @@ class NONLocalBlock1D(nn.Module):
 #            self.g = nn.Sequential(self.g, max_pool_layer)
 #            self.phi = nn.Sequential(self.phi, max_pool_layer)
 
- 
+
     def forward(self, x_past, x_curr):
         # x_curr.shape = torch.Size([64, 5, 400])
         # x_past.shape = torch.Size([64, 25, 400])

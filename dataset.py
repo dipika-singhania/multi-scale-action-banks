@@ -1,6 +1,5 @@
 """ Implements a dataset object which allows to read representations from LMDB datasets in a multi-modal fashion
 The dataset can sample frames for both the anticipation and early recognition tasks."""
-import sys
 import numpy as np
 import lmdb
 from tqdm import tqdm
@@ -45,6 +44,7 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
     recent_features = []
     recent_features1 = []
     recent_features2 = []
+    recent_features3 = []
     past_features = []
     past_features1 = []
     past_features2 = []
@@ -52,6 +52,7 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
         recent_features.append(get_max_pooled_features(e, recent_frames[0]))
         recent_features1.append(get_max_pooled_features(e, recent_frames[1]))
         recent_features2.append(get_max_pooled_features(e, recent_frames[2]))
+        recent_features3.append(get_max_pooled_features(e, recent_frames[3]))
 
         past_features.append(get_max_pooled_features(e, past_frames[0]))
         past_features1.append(get_max_pooled_features(e, past_frames[1]))
@@ -60,6 +61,7 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
     recent_features = np.concatenate(recent_features, axis=-1)
     recent_features1 = np.concatenate(recent_features1, axis=-1)
     recent_features2 = np.concatenate(recent_features2, axis=-1)
+    recent_features3 = np.concatenate(recent_features3, axis=-1)
     past_features = np.concatenate(past_features, axis=-1)
     past_features1 = np.concatenate(past_features1, axis=-1)
     past_features2 = np.concatenate(past_features2, axis=-1)
@@ -69,48 +71,56 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
         recent_features = np.hsplit(recent_features, hsplit)
         recent_features1 = np.hsplit(recent_features1, hsplit)
         recent_features2 = np.hsplit(recent_features2, hsplit)
+        recent_features3 = np.hsplit(recent_features3, hsplit)
         past_features = np.hsplit(past_features, hsplit)
         past_features1 = np.hsplit(past_features1, hsplit)
         past_features2 = np.hsplit(past_features2, hsplit)
-       
+
         recent_features = np.max(recent_features, axis=0)
         recent_features1 = np.max(recent_features1, axis=0)
         recent_features2 = np.max(recent_features2, axis=0)
+        recent_features3 = np.max(recent_features3, axis=0)
         past_features = np.max(past_features, axis=0)
         past_features1 = np.max(past_features1, axis=0)
         past_features2 = np.max(past_features2, axis=0)
-        
-
 
     # print("past features array", (past_features.shape))
     # print("present features array", (recent_features.shape))
 
-    current.append(recent_features)
+#    current.append(recent_features)
+#    past.append(past_features)
+#
+#    current.append(recent_features)
+#    past.append(past_features1)
+#
+#    current.append(recent_features)
+#    past.append(past_features2)
+#
+#    current.append(recent_features1)
+#    past.append(past_features)
+#
+#    current.append(recent_features1)
+#    past.append(past_features1)
+#
+#    current.append(recent_features1)
+#    past.append(past_features2)
+#
+#    current.append(recent_features2)
+#    past.append(past_features)
+#
+#    current.append(recent_features2)
+#    past.append(past_features1)
+#
+#    current.append(recent_features2)
+#    past.append(past_features2)
+
     past.append(past_features)
-
+    past.append(past_features1)
+    past.append(past_features2)
     current.append(recent_features)
-    past.append(past_features1)
-
-    current.append(recent_features)
-    past.append(past_features2)
-
     current.append(recent_features1)
-    past.append(past_features)
-
-    current.append(recent_features1)
-    past.append(past_features1)
-
-    current.append(recent_features1)
-    past.append(past_features2)
-
     current.append(recent_features2)
-    past.append(past_features)
-
-    current.append(recent_features2)
-    past.append(past_features1)
-
-    current.append(recent_features2)
-    past.append(past_features2)
+    current.append(recent_features3)
 
     return current, past
 
@@ -156,8 +166,8 @@ class SequenceDataset(data.Dataset):
         else:
             self.annotations = pd.read_csv(path_to_csv, header=None, names=['video','start','end','verb','noun','action'])
 
-        # print(self.annotations.head())    
-        # print(self.annotations.describe())    
+        # print(self.annotations.head())
+        # print(self.annotations.describe())
         self.challenge = challenge
         self.path_to_lmdb = path_to_lmdb
         self.time_step = time_step
@@ -169,13 +179,14 @@ class SequenceDataset(data.Dataset):
         self.sequence_length = sequence_length
         self.img_tmpl = img_tmpl
         self.action_samples = action_samples
-        self.current_seconds  = args.current_seconds
-        self.current_seconds2 = args.current_seconds2
-        self.current_seconds3 = args.current_seconds3
-        self.in_dim_curr      = args.in_dim_curr
-        self.in_dim_past1     = args.in_dim_past1
-        self.in_dim_past2     = args.in_dim_past2
-        self.in_dim_past3     = args.in_dim_past3
+        self.curr_seconds1  = args.curr_seconds1
+        self.curr_seconds2 = args.curr_seconds2
+        self.curr_seconds3 = args.curr_seconds3
+        self.curr_seconds4 = args.curr_seconds4
+        self.dim_curr      = args.dim_curr
+        self.dim_past1     = args.dim_past1
+        self.dim_past2     = args.dim_past2
+        self.dim_past3     = args.dim_past3
         self.rel_sec  = args.rel_sec
         self.past_sec = args.past_sec
         self.f_max    = args.f_max
@@ -188,7 +199,7 @@ class SequenceDataset(data.Dataset):
         self.action_frames = [] # names of frames sampled from each action
         self.labels = [] # labels of each action
         self.recent_frames = [] # recent past to taken seperately
-        
+
         # populate them
         self.__populate_lists()
 
@@ -216,9 +227,9 @@ class SequenceDataset(data.Dataset):
     def __get_action_bank_features(self, point, video):
         """Samples frames before the beginning of the action "point" """
         time_stamps = self.time_step #, self.time_step * (self.sequence_length + 1), self.time_step)[::-1]
-        
+
         # compute the time stamp corresponding to the beginning of the action
-        end_time_stamp = point / self.fps 
+        end_time_stamp = point / self.fps
 
 
         # subtract time stamps to the timestamp of the last frame
@@ -231,45 +242,48 @@ class SequenceDataset(data.Dataset):
         end_past = np.floor(end_time_stamp * self.fps).astype(int)
         end_current = end_past
 
-        instances_current = [] 
-        instances_past = [] 
-        # start_past =  
+        instances_current = []
+        instances_past = []
+        # start_past =
         start_past = max(end_past - (self.past_sec * self.rel_sec * self.fps), 0)
         # Current Features
 
-        start_current       = max(end_past - self.current_seconds * self.rel_sec * self.fps,  0)
-        start_current2      = max(end_past - self.current_seconds2 * self.rel_sec * self.fps,  0)
-        start_current3      = max(end_past - self.current_seconds3 * self.rel_sec * self.fps,  0)
-        sel_frames_current  = np.linspace(start_current,   end_current, self.in_dim_curr + 1,  dtype=int) 
-        sel_frames_current2 = np.linspace(start_current2,  end_current, self.in_dim_curr + 1,  dtype=int) 
-        sel_frames_current3 = np.linspace(start_current3,  end_current, self.in_dim_curr + 1,  dtype=int) 
+        start_current1      = max(end_past - self.curr_seconds1 * self.rel_sec * self.fps,  0)
+        start_current2      = max(end_past - self.curr_seconds2 * self.rel_sec * self.fps,  0)
+        start_current3      = max(end_past - self.curr_seconds3 * self.rel_sec * self.fps,  0)
+        start_current4      = max(end_past - self.curr_seconds4 * self.rel_sec * self.fps,  0)
+        sel_frames_current1 = np.linspace(start_current1,   end_current, self.dim_curr + 1,  dtype=int)
+        sel_frames_current2 = np.linspace(start_current2,  end_current, self.dim_curr + 1,  dtype=int)
+        sel_frames_current3 = np.linspace(start_current3,  end_current, self.dim_curr + 1,  dtype=int)
+        sel_frames_current4 = np.linspace(start_current4,  end_current, self.dim_curr + 1,  dtype=int)
 
         # Past Features
-        sel_frames_past     = np.linspace(start_past,     end_past,    self.in_dim_past1 + 1,  dtype=int) 
-        sel_frames_past2    = np.linspace(start_past,     end_past,    self.in_dim_past2 + 1,  dtype=int) 
-        sel_frames_past3    = np.linspace(start_past,     end_past,    self.in_dim_past3 + 1,  dtype=int) 
-        
+        sel_frames_past     = np.linspace(start_past,     end_past,    self.dim_past1 + 1,  dtype=int)
+        sel_frames_past2    = np.linspace(start_past,     end_past,    self.dim_past2 + 1,  dtype=int)
+        sel_frames_past3    = np.linspace(start_past,     end_past,    self.dim_past3 + 1,  dtype=int)
+
         # start_current + sel_frames_past{,2,3}
-        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current))
+        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current1))
         instances_current.append(self.__get_frames_from_indices(video, sel_frames_current2))
         instances_current.append(self.__get_frames_from_indices(video, sel_frames_current3))
+        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current4))
 
         instances_past.append(self.__get_frames_from_indices(video, sel_frames_past))
         instances_past.append(self.__get_frames_from_indices(video, sel_frames_past2))
         instances_past.append(self.__get_frames_from_indices(video, sel_frames_past3))
 
         return instances_current, instances_past
-    
+
     def __populate_lists(self):
         count = 0
         """ Samples a sequence for each action and populates the lists. """
         for _, a in tqdm(self.annotations.iterrows(), 'Populating Dataset', total = len(self.annotations)):
             count += 1
-            """if count >10:
-                break"""
+#            if count >100:
+#                break
             # sample frames before the beginning of the action
             current_f, past_f = self.__get_action_bank_features(a.start, a.video)
-            
+
             # check if there were enough frames before the beginning of the action
             if past_f is not None and current_f is not None: # if the smaller frame is at least 1, the sequence is valid
                 self.past_frames.append(past_f)
