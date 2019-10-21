@@ -12,7 +12,7 @@ class ValueMeter(object):
         self.total += n
 
     def value(self):
-        return self.sum/self.total
+        return self.sum / self.total
 
 
 class ArrayValueMeter(object):
@@ -25,7 +25,7 @@ class ArrayValueMeter(object):
         self.total += n
 
     def value(self):
-        val = self.sum/self.total
+        val = self.sum / self.total
         if len(val) == 1:
             return val[0]
         else:
@@ -135,5 +135,5 @@ def predictions_to_json(verb_scores, noun_scores, action_scores, action_ids, a_t
         predictions['results'][str(i)]['noun'] = {str(
             ii): float(nn) for ii, nn in enumerate(n)}
         predictions['results'][str(i)]['action'] = {
-            "%d,%d" % a_to_vn[ii]: float(aa) for ii, aa in zip(ai, a)}
+            "%d, %d" % a_to_vn[ii]: float(aa) for ii, aa in zip(ai, a)}
     return predictions

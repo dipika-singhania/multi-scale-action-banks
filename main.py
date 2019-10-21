@@ -70,8 +70,10 @@ parser.add_argument('--latent_dim',      type=int,   default=512,  help='')
 parser.add_argument('--linear_dim',      type=int,   default=512,  help='')
 parser.add_argument('--dropout_rate',    type=float, default=0.3,  help='')
 parser.add_argument('--dropout_linear',  type=float, default=0.3,  help='')
-
-
+parser.add_argument('--add_verb_loss',   action='store_true', help='Whether to train with verb loss or not')
+parser.add_argument('--verb_class', type=int, default=125, help='')
+parser.add_argument('--add_noun_loss',   action='store_true', help='Whether to train with verb loss or not')
+parser.add_argument('--noun_class', type=int, default=352, help='')
 
 args = parser.parse_args()
 
@@ -86,37 +88,36 @@ if args.modality == "fusion":
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-if args.task == 'anticipation':
-    exp_name = "ab_mod_{}_past_{}_dp1_{}_dp2_{}_dp3_{}_dc_{}_cur1_{}_cur2_{}_cur3_{}_cur4_{}_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
-                args.modality, args.past_sec, args.dim_past1, args.dim_past2, args.dim_past3, args.dim_curr, args.curr_seconds1, args.curr_seconds2, args.curr_seconds3, args.curr_seconds4,
-                args.schedule_epoch, args.batch_size, args.epochs, args.dropout_rate, args.dropout_linear, args.lr, args.latent_dim, args.linear_dim)
-    if args.modality == "fusion":
-        exp_name = exp_name + "_".join(args.fusion_list)
+def make_model_name(argument):
+    if argument.task == 'anticipation':
+        exp_name = "ab_mod_{}_past_{}_dp1_{}_dp2_{}_dp3_{}_dc_{}_cur1_{}_cur2_{}_cur3_{}_cur4_{}_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
+                    argument.modality, argument.past_sec, argument.dim_past1, argument.dim_past2, argument.dim_past3, argument.dim_curr, argument.curr_seconds1, argument.curr_seconds2, argument.curr_seconds3, args.curr_seconds4,
+                    argument.schedule_epoch, argument.batch_size, argument.epochs, argument.dropout_rate, argument.dropout_linear, argument.lr, argument.latent_dim, argument.linear_dim)
+        if argument.modality == "fusion":
+            exp_name = exp_name + "_".join(argument.fusion_list)
+        if argument.add_verb_loss:
+            exp_name = exp_name + '_vb_ls'
+        if argument.add_noun_loss:
+            exp_name = exp_name + '_nn_ls'
 
-exp_name = exp_name + '_ms_bank'
+    exp_name = exp_name + '_ms_bank'
+    return exp_name
 
+
+exp_name = make_model_name(args)
 print("Store file name ", exp_name)
 
 print("Printing Arguments ")
 print(args)
 
 if args.modality == 'late_fusion': # Considering args parameters from object model
+    assert (args.mode != 'train' and args.mode != 'train_val')
     args_rgb = copy.deepcopy(args)
     args_rgb.video_feat_dim = 1024
-
-    if args.modality == "fusion":
-        exp_name = exp_name + "_".join(args.fusion_list)
-
-    exp_rgb_name = "ab_mod_{}_past_{}_dp1_{}_dp2_{}_dp3_{}_dc_{}_cur1_{}_cur2_{}_cur3_{}_cur4_{}_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
-                args_rgb.modality, args_rgb.past_sec, args_rgb.dim_past1, args_rgb.dim_past2, args_rgb.dim_past3, args_rgb.dim_curr, args_rgb.curr_seconds1, args_rgb.curr_seconds2, args_rgb.curr_seconds3, args_rgb.curr_seconds4,
-                args_rgb.schedule_epoch, args_rgb.batch_size, args_rgb.epochs, args_rgb.dropout_rate, args_rgb.dropout_linear, args_rgb.lr, args_rgb.latent_dim, args_rgb.linear_dim)
-    exp_rgb_name += '_ms_bank'
+    exp_rgb_name = make_model_name(args_rgb)
 
     args_flow     = copy.deepcopy(args_rgb)
-    exp_flow_name = "ab_mod_{}_past_{}_dp1_{}_dp2_{}_dp3_{}_dc_{}_cur1_{}_cur2_{}_cur3_{}_cur4_{}_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
-                args_flow.modality, args_flow.past_sec, args_flow.dim_past1, args_flow.dim_past2, args_flow.dim_past3, args_flow.dim_curr, args_flow.curr_seconds1, args_flow.curr_seconds2, args_flow.curr_seconds3, args_flow.curr_seconds4,
-                args_flow.schedule_epoch, args_flow.batch_size, args_flow.epochs, args_flow.dropout_rate, args_flow.dropout_linear, args_flow.lr, args_flow.latent_dim, args_flow.linear_dim)
-    exp_flow_name += '_ms_bank'
+    exp_flow_name = make_model_name(args_flow)
 
 
 def get_loader(mode, override_modality = None):
@@ -132,7 +133,7 @@ def get_loader(mode, override_modality = None):
         'img_tmpl': args.img_tmpl,
         'past_features': args.task == 'anticipation',
         'sequence_length': 1,
-        'label_type': ['verb', 'noun', 'action'] if args.mode != 'train' else 'action',
+        'label_type': ['verb', 'noun', 'action'],
         'challenge': 'test' in mode,
         'args': args
     }
@@ -190,12 +191,15 @@ def save_model(model, epoch, perf, best_perf, is_best=False):
             args.path_to_models, exp_name + '_best.pth.tar'))
 
 
-def log(mode, epoch, loss_meter, accuracy_meter, accuracy_future, accuracy_future1, accuracy_future2, best_perf=None, green=False):
+def log(mode, epoch, loss_meter, accuracy_meter, accuracy_future, accuracy_future1, accuracy_future2, action_loss, verb_loss, noun_loss, best_perf=None, green=False):
     if green:
         print('\033[92m', end="")
     print(
             "[{}] Epoch: {:.2f}. ".format(mode, epoch),
-            "Loss: {:.2f}. ".format(loss_meter.value()),
+            "Total Loss: {:.2f}. ".format(loss_meter.value()),
+            "Action Loss: {:.2f}. ".format(action_loss.value()),
+            "Verb Loss: {:.2f}. ".format(verb_loss.value()),
+            "Noun Loss: {:.2f}. ".format(noun_loss.value()),
             "Accuracy: {:.2f}% ".format(accuracy_meter.value()),
             "Accuracy Future: {:.2f}% ".format(accuracy_future.value()),
             "Accuracy Future1: {:.2f}% ".format(accuracy_future1.value()),
@@ -259,7 +263,7 @@ def get_scores(model, loader):
 
             ids.append(batch['id'].numpy())
 
-            predict_future, predict_future2, predict_future3, predict_future4 = model(x, x_recent)
+            predict_future, predict_future2, predict_future3, predict_future4, pred_verb, pred_verb1, pred_verb2, pred_verb3, _, _, _, _ = model(x, x_recent)
             preds = predict_future.detach().cpu().numpy() + predict_future2.detach().cpu().numpy() + predict_future3.detach().cpu().numpy() + predict_future4.detach().cpu().numpy()
 
             predictions.append(preds)
@@ -293,16 +297,30 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
     loss_func_future2 = nn.CrossEntropyLoss()
     loss_func_future3 = nn.CrossEntropyLoss()
     loss_func_future4 = nn.CrossEntropyLoss()
+    if args.add_verb_loss:
+        loss_func_verb = nn.CrossEntropyLoss()
+        loss_func_verb2 = nn.CrossEntropyLoss()
+        loss_func_verb3 = nn.CrossEntropyLoss()
+        loss_func_verb4 = nn.CrossEntropyLoss()
+    if args.add_noun_loss:
+        loss_func_noun = nn.CrossEntropyLoss()
+        loss_func_noun2 = nn.CrossEntropyLoss()
+        loss_func_noun3 = nn.CrossEntropyLoss()
+        loss_func_noun4 = nn.CrossEntropyLoss()
 
     for epoch in range(start_epoch, epochs):
         if schedule_on is not None:
             schedule_on.step()
         # define training and validation meters
         loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
+        action_loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
+        verb_loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
+        noun_loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
         accuracy_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
         accuracy_future_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
         accuracy_future1_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
         accuracy_future2_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
+
         for mode in ['training', 'validation']:
             # enable gradients only if training
             with torch.set_grad_enabled(mode == 'training'):
@@ -331,25 +349,48 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
 
                     bs = y.shape[0]  # batch size
 
-                    predict_future, predict_future2, predict_future3, predict_future4 = model(x, x_recent)
+                    predict_future, predict_future2, predict_future3, predict_future4, output_verb_future, output_verb_future2, output_verb_future3, output_verb_future4, output_noun_future, output_noun_future2, output_noun_future3, output_noun_future4  = model(x, x_recent)
 
-                    loss = loss_func_future(predict_future, y) +\
-                           loss_func_future2(predict_future2, y) +\
-                           loss_func_future3(predict_future3, y)+\
-                           loss_func_future4(predict_future4, y)
+                    loss = loss_func_future(predict_future, y[:, 2]) +\
+                            loss_func_future2(predict_future2, y[:, 2]) +\
+                            loss_func_future3(predict_future3, y[:, 2])+\
+                            loss_func_future4(predict_future4, y[:, 2])
+                    action_loss_meter[mode].add(loss.item(), bs)
+
+                    if args.add_verb_loss:
+                        verb_loss = loss_func_verb(output_verb_future, y[:, 0]) +\
+                                    loss_func_verb2(output_verb_future2, y[:, 0]) +\
+                                    loss_func_verb3(output_verb_future3, y[:, 0]) +\
+                                    loss_func_verb4(output_verb_future4, y[:, 0])
+                        verb_loss_meter[mode].add(verb_loss.item(), bs)
+                        loss      = loss + verb_loss
+                    else:
+                        verb_loss_meter[mode].add(-1, bs)
+                        
+
+                    if args.add_noun_loss:
+                        noun_loss = loss_func_noun(output_noun_future, y[:, 1]) +\
+                                    loss_func_noun2(output_noun_future2, y[:, 1]) +\
+                                    loss_func_noun3(output_noun_future3, y[:, 1]) +\
+                                    loss_func_noun4(output_noun_future4, y[:, 1])
+                        noun_loss_meter[mode].add(noun_loss.item(), bs)
+                        loss      = loss + noun_loss
+                    else:
+                        noun_loss_meter[mode].add(-1, bs)
+
 
                     # use top-5 for anticipation and top-1 for early recognition
                     k = 5 if args.task == 'anticipation' else 1
 
-                    acc_future = topk_accuracy(predict_future.detach().cpu().numpy(), y.detach().cpu().numpy(), (k,))[0]*100
+                    acc_future  = topk_accuracy(predict_future.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0]*100
                     accuracy_future_meter[mode].add(acc_future, bs)
-                    acc_future1 = topk_accuracy(predict_future2.detach().cpu().numpy(), y.detach().cpu().numpy(), (k,))[0]*100
+                    acc_future1 = topk_accuracy(predict_future2.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0]*100
                     accuracy_future1_meter[mode].add(acc_future1, bs)
-                    acc_future2 = topk_accuracy(predict_future3.detach().cpu().numpy(), y.detach().cpu().numpy(), (k,))[0]*100
+                    acc_future2 = topk_accuracy(predict_future3.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0]*100
                     accuracy_future2_meter[mode].add(acc_future2, bs)
 
                     preds = predict_future.detach() + predict_future2.detach() + predict_future3.detach()+ predict_future4.detach()
-                    acc = topk_accuracy(preds.detach().cpu().numpy(), y.detach().cpu().numpy(), (k,))[0] * 100
+                    acc = topk_accuracy(preds.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0] * 100
 
                     # store the values in the meters to keep incremental averages
                     loss_meter[mode].add(loss.item(), bs)
@@ -367,11 +408,12 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
                     # log training during loop
                     # avoid logging the very first batch. It can be biased.
                     if mode == 'training' and i != 0 and i % args.display_every == 0:
-                        log(mode, e, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter[mode], accuracy_future1_meter[mode], accuracy_future2_meter[mode])
+                        log(mode, e, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter[mode], accuracy_future1_meter[mode], 
+                            accuracy_future2_meter[mode], action_loss_meter[mode], verb_loss_meter[mode], noun_loss_meter[mode])
 
                 # log at the end of each epoch
                 log(mode, epoch + 1, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter[mode], accuracy_future1_meter[mode], accuracy_future2_meter[mode],
-                    max(accuracy_meter[mode].value(), best_perf) if mode == 'validation' else None, green=True)
+                    action_loss_meter[mode], verb_loss_meter[mode], noun_loss_meter[mode], max(accuracy_meter[mode].value(), best_perf) if mode == 'validation' else None, green=True)
 
 
         if best_perf < accuracy_meter['validation'].value():
@@ -448,14 +490,14 @@ def main():
             loader = get_loader('validation')
             verb_scores, noun_scores, action_scores, verb_labels, noun_labels, action_labels = get_scores(model, loader)
 
-        verb_accuracies = topk_accuracy(verb_scores, verb_labels, (5,))[0]
-        noun_accuracies = topk_accuracy(noun_scores, noun_labels, (5,))[0]
+        verb_accuracies   = topk_accuracy(verb_scores, verb_labels, (5,))[0]
+        noun_accuracies   = topk_accuracy(noun_scores, noun_labels, (5,))[0]
         action_accuracies = topk_accuracy(action_scores, action_labels, (5,))[0]
 
         many_shot_verbs, many_shot_nouns, many_shot_actions = get_many_shot()
 
-        verb_recalls = topk_recall(verb_scores, verb_labels, k=5, classes=many_shot_verbs)
-        noun_recalls = topk_recall(noun_scores, noun_labels, k=5, classes=many_shot_nouns)
+        verb_recalls   = topk_recall(verb_scores, verb_labels, k=5, classes=many_shot_verbs)
+        noun_recalls   = topk_recall(noun_scores, noun_labels, k=5, classes=many_shot_nouns)
         action_recalls = topk_recall(action_scores, action_labels, k=5, classes=many_shot_actions)
         print("Verb Accuracy ", verb_accuracies * 100)
         print("Noun Accuracy ", noun_accuracies * 100)

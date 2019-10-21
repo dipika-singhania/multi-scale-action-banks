@@ -124,6 +124,37 @@ class Network(nn.Module):
             nn.Linear(in_features=2*self.linear_dim , out_features=self.n_classes)
         )
 
+        self.add_verb_loss = args.add_verb_loss
+        self.add_noun_loss = args.add_noun_loss
+
+        if args.add_verb_loss:
+            self.cls_future_verb = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.verb_class)
+            )
+            self.cls_future2_verb = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.verb_class)
+            )
+            self.cls_future3_verb = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.verb_class)
+            )
+            self.cls_future4_verb = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.verb_class)
+            )
+
+        if args.add_noun_loss:
+            self.cls_future_noun = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.noun_class)
+            )
+            self.cls_future2_noun = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.noun_class)
+            )
+            self.cls_future3_noun = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.noun_class)
+            )
+            self.cls_future4_noun = nn.Sequential(
+                nn.Linear(in_features=2*self.linear_dim , out_features=args.noun_class)
+            )
+
     def forward(self, x_past_actual_all, x_curr_actual_all):
 
 #        comb_netFuture1, comb_netPast1 = self.NetInNet1(x_past_actual_all, x_curr_actual_all, 0 )
@@ -146,8 +177,30 @@ class Network(nn.Module):
         comb_netFuture_netPast4 = torch.cat(( comb_netFuture4, comb_netPast4), 1 )  # output_future_task_fc.shape  = torch.Size([64, 2048])                  #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! add class scores as well
         output_final_future4    = self.cls_future4(comb_netFuture_netPast4)                            # output_final_future.shape    = torch.Size([64, 48])
 
-        return output_final_future , output_final_future2, output_final_future3, output_final_future4
+        if self.add_verb_loss:
+            output_verb_future  = self.cls_future_verb(comb_netFuture_netPast1) 
+            output_verb_future2 = self.cls_future2_verb(comb_netFuture_netPast2)
+            output_verb_future3 = self.cls_future3_verb(comb_netFuture_netPast3)
+            output_verb_future4 = self.cls_future4_verb(comb_netFuture_netPast4)
+        else:
+            output_verb_future  = None
+            output_verb_future2 = None
+            output_verb_future3 = None
+            output_verb_future4 = None
 
+        if self.add_noun_loss:
+            output_noun_future  = self.cls_future_noun(comb_netFuture_netPast1) 
+            output_noun_future2 = self.cls_future2_noun(comb_netFuture_netPast2)
+            output_noun_future3 = self.cls_future3_noun(comb_netFuture_netPast3)
+            output_noun_future4 = self.cls_future4_noun(comb_netFuture_netPast4)
+        else:
+            output_noun_future  = None
+            output_noun_future2 = None
+            output_noun_future3 = None
+            output_noun_future4 = None
+
+
+        return output_final_future , output_final_future2, output_final_future3, output_final_future4, output_verb_future, output_verb_future2, output_verb_future3, output_verb_future4, output_noun_future, output_noun_future2, output_noun_future3, output_noun_future4
 
 
     def sample_predict(self, x_past, x_curr, Nsamples=100):
