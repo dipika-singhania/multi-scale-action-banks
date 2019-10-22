@@ -57,16 +57,9 @@ parser.add_argument('--epochs',          type=int,   default=45,   help="Trainin
 
 parser.add_argument('--past_sec',        type=float, default=5,    help='') #
 parser.add_argument('-p','--dim_past_list', action='append', type=int, help='Past seconds to be taken into account', required=False)
-# parser.add_argument('--dim_past1',       type=int,   default=6,    help='') #
-# parser.add_argument('--dim_past2',       type=int,   default=4,    help='') #
-# parser.add_argument('--dim_past3',       type=int,   default=2,    help='')
 
 parser.add_argument('--dim_curr',        type=int,   default=2,    help='')
 parser.add_argument('-c','--curr_sec_list', action='append', type=float, help='current seconds to be taken into account', required=False)
-# parser.add_argument('--curr_seconds1',   type=float, default=2,    help='')
-# parser.add_argument('--curr_seconds2',   type=float, default=1.5,  help='') #
-# parser.add_argument('--curr_seconds3',   type=float, default=1,    help='') #
-# parser.add_argument('--curr_seconds4',   type=float, default=0.5,  help='') #
 
 parser.add_argument('--latent_dim',      type=int,   default=512,  help='')
 parser.add_argument('--linear_dim',      type=int,   default=512,  help='')
@@ -280,7 +273,6 @@ def get_scores(model, loader):
             preds = 0
             for pred_f in predict_future_list:
                 preds +=  pred_f.detach().cpu().numpy()
-            # preds = predict_future.detach().cpu().numpy() + predict_future2.detach().cpu().numpy() + predict_future3.detach().cpu().numpy() + predict_future4.detach().cpu().numpy()
 
             predictions.append(preds)
             labels.append(y)
@@ -296,8 +288,8 @@ def get_scores(model, loader):
 
     action_probs = softmax(action_scores.reshape(-1, action_scores.shape[-1]))
 
-    verb_scores = marginalize(action_probs, vi) # .reshape( action_scores.shape[0], action_scores.shape[1], -1)
-    noun_scores = marginalize(action_probs, ni) # .reshape( action_scores.shape[0], action_scores.shape[1], -1)
+    verb_scores = marginalize(action_probs, vi) 
+    noun_scores = marginalize(action_probs, ni) 
 
 
     if labels.max() > 0:
