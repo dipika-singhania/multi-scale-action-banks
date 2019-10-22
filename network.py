@@ -188,10 +188,10 @@ class Network(nn.Module):
             output_final_future_list.append(output_final_future)
             if self.add_verb_loss:
                 output_verb_future       = self.cls_future_verb_list[i](comb_netFuture_netPast)  # output_final_future.shape    = torch.Size([64, 48])
-                output_verb_future_list.append(output_final_future)
+                output_verb_future_list.append(output_verb_future)
             if self.add_noun_loss:
                 output_noun_future       = self.cls_future_noun_list[i](comb_netFuture_netPast)  # output_final_future.shape    = torch.Size([64, 48])
-                output_noun_future_list.append(output_final_future)
+                output_noun_future_list.append(output_noun_future)
             
         #comb_netFuture1, comb_netPast1 = self.NetInNet1(x_past_actual_all, x_curr_actual_all, 0 )
         #comb_netFuture2, comb_netPast2 = self.NetInNet2(x_past_actual_all, x_curr_actual_all, 1 )
