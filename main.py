@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from dataset import SequenceDataset
+from dataset import SequenceDataset, my_collate
 from os.path import join
 import torch
 from torch.utils.data import DataLoader
@@ -26,7 +26,7 @@ parser.add_argument('path_to_models',   type=str,   help="Path to the directory 
 #parser.add_argument('--path_to_models',   type=str,   default=COMP_PATH + 'EPIC_CODES/models/', help="Path to the directory where to save all models")
 
 parser.add_argument('--json_directory',  type=str,   default = None, help = 'Directory in which to save the generated jsons.')
-parser.add_argument('--task',            type=str,   default='anticipation', choices=['anticipation', 'early_recognition'], help='Task to tackle: anticipation or early recognition')
+parser.add_argument('--task',            type=str,   default='anticipation', choices=['anticipation', 'recognition'], help='Task to tackle: anticipation or early recognition')
 parser.add_argument('--alpha',           type=float, default=1,    help="Distance between time-steps in seconds")
 parser.add_argument('--img_tmpl',        type=str,   default='frame_{:010d}.jpg', help='Template to use to load the representation of a given frame')
 parser.add_argument('-l','--fusion_list',action='append', help='<Required> Set flag', required=False)
@@ -92,20 +92,19 @@ if args.modality == "fusion":
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def make_model_name(argument):
-    if argument.task == 'anticipation':
-        exp_name = "ab_mod_{}_past_{}".format(argument.modality, argument.past_sec)
-        exp_name = exp_name + "_" + "_".join(['dp{}_{}'.format(i, num) for i, num in enumerate(args.dim_past_list)])
-        exp_name = exp_name + "_dc_{}".format(args.dim_curr)
-        exp_name = exp_name + "_" + "_".join(['cur{}_{}'.format(i, num) for i, num in enumerate(args.curr_sec_list)])
-        exp_name = exp_name + "_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
-                    argument.schedule_epoch, argument.batch_size, argument.epochs, argument.dropout_rate,
-                    argument.dropout_linear, argument.lr, argument.latent_dim, argument.linear_dim)
-        if argument.modality == "fusion":
-            exp_name = exp_name + "_".join(argument.fusion_list)
-        if argument.add_verb_loss:
-            exp_name = exp_name + '_vb_ls'
-        if argument.add_noun_loss:
-            exp_name = exp_name + '_nn_ls'
+    exp_name = "ab_task_{}_mod_{}_past_{}".format(argument.task, argument.modality, argument.past_sec)
+    exp_name = exp_name + "_" + "_".join(['dp{}_{}'.format(i, num) for i, num in enumerate(args.dim_past_list)])
+    exp_name = exp_name + "_dc_{}".format(args.dim_curr)
+    exp_name = exp_name + "_" + "_".join(['cur{}_{}'.format(i, num) for i, num in enumerate(args.curr_sec_list)])
+    exp_name = exp_name + "_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
+                argument.schedule_epoch, argument.batch_size, argument.epochs, argument.dropout_rate,
+                argument.dropout_linear, argument.lr, argument.latent_dim, argument.linear_dim)
+    if argument.modality == "fusion":
+        exp_name = exp_name + "_".join(argument.fusion_list)
+    if argument.add_verb_loss:
+        exp_name = exp_name + '_vb_ls'
+    if argument.add_noun_loss:
+        exp_name = exp_name + '_nn_ls'
 
     exp_name = exp_name + '_ms_bank'
     return exp_name
@@ -128,14 +127,14 @@ def get_loader(mode, override_modality = None):
     if override_modality:
         path_to_lmdb = join(args.path_to_data, override_modality)
     else:
-        path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_lmdb_data, m) for m in args.fusion_list]
+        path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
 
     kargs = {
         'path_to_lmdb': path_to_lmdb,
         'path_to_csv': join(args.path_to_data, "{}.csv".format(mode)),
         'time_step': args.alpha,
         'img_tmpl': args.img_tmpl,
-        'past_features': args.task == 'anticipation',
+        'task': args.task,
         'sequence_length': 1,
         'label_type': ['verb', 'noun', 'action'],
         'challenge': 'test' in mode,
@@ -145,7 +144,7 @@ def get_loader(mode, override_modality = None):
     _set = SequenceDataset(**kargs)
 
     return DataLoader(_set, batch_size=args.batch_size, num_workers=args.num_workers,
-                      pin_memory=True, shuffle=mode == 'training')
+                      pin_memory=True, shuffle=mode == 'training', collate_fn=my_collate)
 
 
 def get_model():
@@ -252,8 +251,8 @@ def get_scores(model, loader):
     ids = []
     with torch.set_grad_enabled(False):
         for batch in tqdm(loader, 'Evaluating...', len(loader)):
-            x = batch['past_features' if args.task == 'anticipation' else 'action_features']
-            x_recent = batch['recent_features' if args.task == 'anticipation' else 'action_features']
+            x = batch['past_features']
+            x_recent = batch['recent_features']
             if type(x) == list:
                 x = [xx.to(device) for xx in x]
             else:
@@ -328,10 +327,8 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
                     model.eval()
 
                 for i, batch in enumerate(loaders[mode]):
-                    x = batch['past_features' if args.task ==
-                              'anticipation' else 'action_features']
-                    x_recent = batch['recent_features' if args.task ==
-                              'anticipation' else 'action_features']
+                    x = batch['past_features']
+                    x_recent = batch['recent_features'] 
                     if type(x) == list:
                         x = [xx.to(device) for xx in x]
                     else:
@@ -375,8 +372,8 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
                         noun_loss_meter[mode].add(-1, bs)
 
 
-                    # use top-5 for anticipation and top-1 for early recognition
-                    k = 5 if args.task == 'anticipation' else 1
+                    # use top-5
+                    k = 5
 
                     preds = 0
                     for j, pred_f in enumerate(predict_future_list):
