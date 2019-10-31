@@ -13,6 +13,7 @@ from torch.optim import lr_scheduler
 from torch import nn
 import copy
 COMP_PATH =  '/mnt/auersberg/Anticipation/'
+import os
 #COMP_PATH = '/home/sener/share/Anticipation/'
 
 pd.options.display.float_format = '{:05.2f}'.format
@@ -48,7 +49,7 @@ parser.add_argument('--schedule_epoch',  type=int,   default=10,   help='')
 parser.add_argument('--scale_factor',    type=float, default=-.5,  help='')
 parser.add_argument('--scale',           type=bool,  default=True, help='')
 parser.add_argument('--hsplit',          type=int,   default=2,    help="Splits into stream parts stream")
-parser.add_argument('--f_max',           type=bool,  default=False,help="Fuses 3 streams to single stream")
+parser.add_argument('--f_max',           action='store_true', help="Fuses 3 streams to single stream")
 
 parser.add_argument('--video_feat_dim',  type=int,   default=352, help='') # 352 1024
 parser.add_argument('--lr',              type=float, default=1e-4, help="Learning rate")
@@ -69,6 +70,8 @@ parser.add_argument('--add_verb_loss',   action='store_true', help='Whether to t
 parser.add_argument('--verb_class', type=int, default=125, help='')
 parser.add_argument('--add_noun_loss',   action='store_true', help='Whether to train with verb loss or not')
 parser.add_argument('--noun_class', type=int, default=352, help='')
+parser.add_argument('-s', '--samples_envs', action='append', type=str, help='path_to_data=/mnt/data/epic_kitchen/data/,\
+                     -s=sample1 new_path=/mnt/data/epic_kitchen/sample1/', required=False)
 
 args = parser.parse_args()
 
@@ -77,6 +80,21 @@ if len(args.curr_sec_list) == 0:
 
 if len(args.dim_past_list) == 0:
     args.dim_past_list = [5, 3, 2]
+
+string_of_env = ''
+list_of_envs = []
+if args.samples_envs is not None and len(args.samples_envs) != 0:
+    dirname             = os.path.dirname(args.path_to_data)
+    base_directory_name = os.path.basename(dirname)
+    list_of_envs        = [args.path_to_data]
+    string_of_env       = base_directory_name
+    for env_name in args.samples_envs:
+        k = args.path_to_data.rfind(base_directory_name)
+        new_directory   = args.path_to_data[:k] + env_name + "/"
+        assert os.path.exists(new_directory), 'Please specify correct directory, ' + new_directory + ' does not exost'
+        string_of_env  += "_" + env_name
+        list_of_envs.append(new_directory)
+    print("Using list of environments = ", list_of_envs)
 
 print(args)
 
@@ -105,6 +123,8 @@ def make_model_name(argument):
         exp_name = exp_name + '_vb_ls'
     if argument.add_noun_loss:
         exp_name = exp_name + '_nn_ls'
+    if len(string_of_env) != 0:
+        exp_name = exp_name + '_' + string_of_env
 
     exp_name = exp_name + '_ms_bank'
     return exp_name
@@ -127,7 +147,13 @@ def get_loader(mode, override_modality = None):
     if override_modality:
         path_to_lmdb = join(args.path_to_data, override_modality)
     else:
-        path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
+        if len(list_of_envs) > 0:
+            path_to_lmdb = []
+            for envs in list_of_envs:
+                ele_of_list = join(envs, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
+                path_to_lmdb.append(ele_of_list)
+        else:
+            path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
 
     kargs = {
         'path_to_lmdb': path_to_lmdb,
@@ -137,6 +163,7 @@ def get_loader(mode, override_modality = None):
         'task': args.task,
         'sequence_length': 1,
         'label_type': ['verb', 'noun', 'action'],
+        'multi_samples': len(list_of_envs),
         'challenge': 'test' in mode,
         'args': args
     }
@@ -165,6 +192,8 @@ def get_model():
             checkpoint_flow = torch.load(join(args.path_to_models,exp_flow_name.replace('late_fusion','flow') +'.pth.tar'))['state_dict']
             checkpoint_obj = torch.load(join(args.path_to_models, exp_name.replace('late_fusion','obj') +'.pth.tar'))['state_dict']
 
+        import pdb
+        pdb.set_trace()
         rgb_model.load_state_dict(checkpoint_rgb)
         flow_model.load_state_dict(checkpoint_flow)
         obj_model.load_state_dict(checkpoint_obj)

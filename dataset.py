@@ -24,22 +24,17 @@ def get_max_pooled_features(env, frame_names):
             if (len(pool_list) == 0):
                 # print("Missing frames in ", kkl, "indices")
                 missing_kkl.append(kkl)
-                list_data.append(np.zeros(1024))
             else:
                 pool_ndarr = np.array(pool_list)
                 max_pool = np.max(pool_ndarr, 0)
                 list_data.append(max_pool.squeeze())
-
-    for index in missing_kkl[::-1]: # Reversing and adding next frames to previous frames to fill in indexes with many empty at start
-        try:
-           list_data[index] = list_data[index + 1]
-        except:
-            print("Index number = ", index)
-            print("Index + 1 = ", index + 1)
-            print("len of missing = ", len(missing_kkl))
-            print("Missing kkl = ", missing_kkl)
-            print("frames_names = ", frame_names)
-            return None
+   
+    if len(list_data) == 0:
+        print("ERROR: None of the partitions were non-zero")
+        return None 
+    valid_index = -1
+    for _ in missing_kkl: # Reversing and adding next frames to previous frames to fill in indexes with many empty at start
+       list_data.append(list_data[-1])
     list_data  =  np.stack(list_data)
     # print(list_data.shape)
     return list_data
@@ -51,7 +46,7 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
     past    = []
 
     recent_features_arr = []  
-    past_features_arr  = []
+    past_features_arr   = []
     # print("Shape of recent frame ", len(recent_frames)) #, "Shape of 0th frame", recent_frames[0].shape)
     # print("Shape of past frame ", len(past_frames)) # , "Shape of 0th frame", past_frames[0].shape)
     
@@ -126,7 +121,7 @@ class SequenceDataset(data.Dataset):
                 transform = None,
                 challenge = False,
                 task = 'anticipation',
-                action_samples = None, args=None):
+                action_samples = None, args=None, multi_samples=0):
         """
             Inputs:
                 path_to_lmdb: path to the folder containing the LMDB dataset
@@ -140,6 +135,7 @@ class SequenceDataset(data.Dataset):
                 challenge: allows to load csvs containing only time-stamp for the challenge
                 task: Defines which task is being used
                 action_samples: number of frames to be evenly sampled from each action
+                multi-sample: number of samples to pick up from
         """
 
         # read the csv file
@@ -176,15 +172,28 @@ class SequenceDataset(data.Dataset):
         self.action_frames = [] # names of frames sampled from each action
         self.labels = [] # labels of each action
         self.recent_frames = [] # recent past to taken seperately
+        self.multi_samples = multi_samples
 
         # populate them
         self.__populate_lists()
 
         # if a list to datasets has been provided, load all of them
         if isinstance(self.path_to_lmdb, list):
-            self.env = [lmdb.open(l, readonly=True, lock=False) for l in self.path_to_lmdb]
+            self.env = []
+            for l in self.path_to_lmdb:
+                if isinstance(l, list):
+                    env_sub = []
+                    for m in l:
+                        print("Opening lmdb environment ", m)
+                        env_sub = lmdb.open(m, readonly=True, lock=False)
+                    self.env.append(env_sub)
+                else:
+                    print("Opening lmdb environment ", l)
+                    env_sub = lmdb.open(l, readonly=True, lock=False)
+                    self.env.append(env_sub)
         else:
             # otherwise, just load the single LMDB dataset
+            print("Opening lmdb environment ", self.path_to_lmdb)
             self.env = lmdb.open(self.path_to_lmdb, readonly=True, lock=False)
 
     def __get_frames(self, frames, video):
@@ -276,21 +285,40 @@ class SequenceDataset(data.Dataset):
             # print("Count = %d", count)
             # check if there were enough frames before the beginning of the action
             if past_f is not None and current_f is not None: # if the smaller frame is at least 1, the sequence is valid
-                self.past_frames.append(past_f)
-                self.recent_frames.append(current_f)
-                self.ids.append(a.name)
-                # handle whether a list of labels is required (e.g., [verb, noun]), rather than a single action
-                if isinstance(self.label_type, list):
-                    if self.challenge: # if sampling for the challenge, there are no labels, just add -1
-                        self.labels.append(-1)
-                    else:
-                        # otherwise get the required labels
-                        self.labels.append(a[self.label_type].values.astype(int))
-                else: #single label version
-                    if self.challenge:
-                        self.labels.append(-1)
-                    else:
-                        self.labels.append(a[self.label_type])
+                if self.multi_samples == 0:
+                    self.past_frames.append(past_f)
+                    self.recent_frames.append(current_f)
+                    self.ids.append(a.name)
+                    # handle whether a list of labels is required (e.g., [verb, noun]), rather than a single action
+                    if isinstance(self.label_type, list):
+                        if self.challenge: # if sampling for the challenge, there are no labels, just add -1
+                            self.labels.append(-1)
+                        else:
+                            # otherwise get the required labels
+                            self.labels.append(a[self.label_type].values.astype(int))
+                    else: #single label version
+                        if self.challenge:
+                            self.labels.append(-1)
+                        else:
+                            self.labels.append(a[self.label_type])
+                else:
+                    for i in range(self.multi_samples):
+                        self.past_frames.append(past_f)
+                        self.recent_frames.append(current_f)
+                        self.ids.append(str(i) + "_" + str(a.name))
+                        # handle whether a list of labels is required (e.g., [verb, noun]), rather than a single action
+                        if isinstance(self.label_type, list):
+                            if self.challenge: # if sampling for the challenge, there are no labels, just add -1
+                                self.labels.append(-1)
+                            else:
+                                # otherwise get the required labels
+                                self.labels.append(a[self.label_type].values.astype(int))
+                        else: #single label version
+                            if self.challenge:
+                                self.labels.append(-1)
+                            else:
+                                self.labels.append(a[self.label_type])
+                        
             else:
                 #if the sequence is invalid, do nothing, but add the id to the discarded_ids list
                 self.discarded_ids.append(a.name)
@@ -310,8 +338,14 @@ class SequenceDataset(data.Dataset):
         # print("Data asked for index ", index)
 
         # read representations for past frames
-        out['recent_features'], out['past_features'] = read_data(recent_frames, past_frames, self.env, self.transform,\
-                                                                 self.f_max, self.hsplit)
+        if self.multi_samples > 0:
+            env_num = int(self.ids[index][:self.ids[index].find('_')])
+            out['recent_features'], out['past_features'] = read_data(recent_frames, past_frames, self.env[env_num], self.transform,\
+                                                                     self.f_max, self.hsplit)
+        else:
+            out['recent_features'], out['past_features'] = read_data(recent_frames, past_frames, self.env, self.transform,\
+                                                                     self.f_max, self.hsplit)
+
         if out['recent_features'] is None and out['past_features'] is None:
             return None
 

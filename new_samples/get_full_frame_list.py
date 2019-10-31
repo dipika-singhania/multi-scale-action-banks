@@ -1,5 +1,5 @@
 import lmdb
-env = lmdb.open('/mnt/data/epic_kitchen/sample1/obj/', readonly=True, lock=False)
+env = lmdb.open('/mnt/data/epic_kitchen/sample2/obj/', readonly=True, lock=False)
 with env.begin() as txn:
     cursor = txn.cursor()
     count = 0
