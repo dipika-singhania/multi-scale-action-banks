@@ -144,15 +144,17 @@ if args.modality == 'late_fusion': # Considering args parameters from object mod
 
 
 def get_loader(mode, override_modality = None):
+    global list_of_envs
     if override_modality:
         path_to_lmdb = join(args.path_to_data, override_modality)
     else:
-        if len(list_of_envs) > 0:
+        if len(list_of_envs) > 0 and mode == 'train':
             path_to_lmdb = []
             for envs in list_of_envs:
                 ele_of_list = join(envs, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
                 path_to_lmdb.append(ele_of_list)
         else:
+            list_of_envs = []
             path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
 
     kargs = {
@@ -192,8 +194,6 @@ def get_model():
             checkpoint_flow = torch.load(join(args.path_to_models,exp_flow_name.replace('late_fusion','flow') +'.pth.tar'))['state_dict']
             checkpoint_obj = torch.load(join(args.path_to_models, exp_name.replace('late_fusion','obj') +'.pth.tar'))['state_dict']
 
-        import pdb
-        pdb.set_trace()
         rgb_model.load_state_dict(checkpoint_rgb)
         flow_model.load_state_dict(checkpoint_flow)
         obj_model.load_state_dict(checkpoint_obj)
