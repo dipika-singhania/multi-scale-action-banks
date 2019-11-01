@@ -111,9 +111,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def make_model_name(argument):
     exp_name = "ab_task_{}_mod_{}_past_{}".format(argument.task, argument.modality, argument.past_sec)
-    exp_name = exp_name + "_" + "_".join(['dp{}_{}'.format(i, num) for i, num in enumerate(args.dim_past_list)])
-    exp_name = exp_name + "_dc_{}".format(args.dim_curr)
-    exp_name = exp_name + "_" + "_".join(['cur{}_{}'.format(i, num) for i, num in enumerate(args.curr_sec_list)])
+    exp_name = exp_name + "_" + "_".join(['dp{}_{}'.format(i, num) for i, num in enumerate(argument.dim_past_list)])
+    exp_name = exp_name + "_dc_{}".format(argument.dim_curr)
+    exp_name = exp_name + "_" + "_".join(['cur{}_{}'.format(i, num) for i, num in enumerate(argument.curr_sec_list)])
     exp_name = exp_name + "_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
                 argument.schedule_epoch, argument.batch_size, argument.epochs, argument.dropout_rate,
                 argument.dropout_linear, argument.lr, argument.latent_dim, argument.linear_dim)
@@ -137,10 +137,12 @@ if args.modality == 'late_fusion': # Considering args parameters from object mod
     assert (args.mode != 'train' and args.mode != 'train_val')
     args_rgb = copy.deepcopy(args)
     args_rgb.video_feat_dim = 1024
-    exp_rgb_name = make_model_name(args_rgb)
+    args_rgb.dim_curr = 2
+    exp_rgb_name      = make_model_name(args_rgb)
 
-    args_flow     = copy.deepcopy(args_rgb)
-    exp_flow_name = make_model_name(args_flow)
+    args_flow          = copy.deepcopy(args_rgb)
+    args_flow.dim_curr = 2
+    exp_flow_name      = make_model_name(args_flow)
 
 
 def get_loader(mode, override_modality = None):
@@ -192,8 +194,6 @@ def get_model():
             checkpoint_flow = torch.load(join(args.path_to_models,exp_flow_name.replace('late_fusion','flow') +'.pth.tar'))['state_dict']
             checkpoint_obj = torch.load(join(args.path_to_models, exp_name.replace('late_fusion','obj') +'.pth.tar'))['state_dict']
 
-        import pdb
-        pdb.set_trace()
         rgb_model.load_state_dict(checkpoint_rgb)
         flow_model.load_state_dict(checkpoint_flow)
         obj_model.load_state_dict(checkpoint_obj)
