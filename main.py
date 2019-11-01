@@ -19,7 +19,7 @@ import os
 pd.options.display.float_format = '{:05.2f}'.format
 
 parser = ArgumentParser(description="Training program with Multi-Action-Banks")
-parser.add_argument('mode',             type=str,   default='validate', choices=['train', 'validate', 'train_val', 'test'], help="Whether to perform training, validation or test. If test is selected, --json_directory must be used to provide a directory in which to save the generated jsons.")
+parser.add_argument('mode', type=str,   default='validate', choices=['train', 'validate', 'train_val', 'test'], help="Whether to perform training, validation or test. If test is selected, --json_directory must be used to provide a directory in which to save the generated jsons.")
 parser.add_argument('path_to_data',     type=str,   help="Path to the data folder,  containing all LMDB datasets")
 parser.add_argument('path_to_models',   type=str,   help="Path to the directory where to save all models")
 #parser.add_argument('--mode',             type=str,   default='validate', choices=['train', 'validate', 'train_val', 'test'], help="Whether to perform training, validation or test. If test is selected, --json_directory must be used to provide a directory in which to save the generated jsons.")
@@ -146,16 +146,20 @@ if args.modality == 'late_fusion': # Considering args parameters from object mod
 
 
 def get_loader(mode, override_modality = None):
+    global list_of_envs
+    multi_samples = 0
     if override_modality:
         path_to_lmdb = join(args.path_to_data, override_modality)
     else:
-        if len(list_of_envs) > 0:
+        if len(list_of_envs) > 0 and mode == 'training':
             path_to_lmdb = []
             for envs in list_of_envs:
                 ele_of_list = join(envs, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
                 path_to_lmdb.append(ele_of_list)
+            multi_samples = len(list_of_envs)
         else:
             path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
+            multi_samples = 0
 
     kargs = {
         'path_to_lmdb': path_to_lmdb,
@@ -165,7 +169,7 @@ def get_loader(mode, override_modality = None):
         'task': args.task,
         'sequence_length': 1,
         'label_type': ['verb', 'noun', 'action'],
-        'multi_samples': len(list_of_envs),
+        'multi_samples': multi_samples,
         'challenge': 'test' in mode,
         'args': args
     }
