@@ -35,9 +35,9 @@ parser.add_argument('--resume',          action='store_true', help='Whether to r
 
 parser.add_argument('--modality',        type=str,   default='late_fusion', choices=['rgb', 'flow', 'obj', 'fusion', 'late_fusion'],  help = "Modality. Rgb/flow/obj represent single branches, whereas fusion indicates the whole model with modality attention.")
 parser.add_argument('--best_model',      type=str,  default='best', help='') # 'best' 'last'
-parser.add_argument('--weight_rgb',      type=float, default=1, help='')
-parser.add_argument('--weight_flow',     type=float, default=1, help='')
-parser.add_argument('--weight_obj',      type=float, default=1, help='')
+parser.add_argument('--weight_rgb',      type=float, default=5, help='')
+parser.add_argument('--weight_flow',     type=float, default=5, help='')
+parser.add_argument('--weight_obj',      type=float, default=3, help='')
 
 parser.add_argument('--num_class',       type=int,   default=2513, help='Number of classes')
 parser.add_argument('--num_workers',     type=int,   default=4,    help="Number of parallel thread to fetch the data")
@@ -56,7 +56,7 @@ parser.add_argument('--lr',              type=float, default=1e-4, help="Learnin
 parser.add_argument('--batch_size',      type=int,   default=10,   help="Batch Size")
 parser.add_argument('--epochs',          type=int,   default=45,   help="Training epochs")
 
-parser.add_argument('--past_sec',        type=float, default=5,    help='') #
+parser.add_argument('--past_sec',        type=float, default=10,    help='') #
 parser.add_argument('-p','--dim_past_list', action='append', type=int, help='Past seconds to be taken into account', required=False)
 
 parser.add_argument('--dim_curr',        type=int,   default=2,    help='')
@@ -72,11 +72,11 @@ parser.add_argument('--add_noun_loss',   action='store_true', help='Whether to t
 parser.add_argument('--noun_class', type=int, default=352, help='')
 parser.add_argument('-s', '--samples_envs', action='append', type=str, help='path_to_data=/mnt/data/epic_kitchen/data/,\
                      -s=sample1 new_path=/mnt/data/epic_kitchen/sample1/', required=False)
-
+parser.add_argument('--take_future', action='store_true', help="Whether to consider -5+5 etc combination")
 args = parser.parse_args()
 
 if len(args.curr_sec_list) == 0:
-    args.curr_sec_list = [2, 1.5, 1, 0.5]
+    args.curr_sec_list = [0, 0.5, 1, 1.5]
 
 if len(args.dim_past_list) == 0:
     args.dim_past_list = [5, 3, 2]
@@ -125,6 +125,8 @@ def make_model_name(argument):
         exp_name = exp_name + '_nn_ls'
     if len(string_of_env) != 0:
         exp_name = exp_name + '_' + string_of_env
+    if argument.take_future:
+        exp_name = exp_name + "_tf"
 
     exp_name = exp_name + '_ms_bank'
     return exp_name

@@ -30,7 +30,7 @@ def get_max_pooled_features(env, frame_names):
                 list_data.append(max_pool.squeeze())
    
     if len(list_data) == 0:
-        print("ERROR: None of the partitions were non-zero")
+        #print("ERROR: None of the partitions were non-zero")
         return None 
     valid_index = -1
     for _ in missing_kkl: # Reversing and adding next frames to previous frames to fill in indexes with many empty at start
@@ -55,15 +55,35 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
         past_env_arr   = []
         for i in range(len(recent_frames)):
             recent_features = get_max_pooled_features(e, recent_frames[i])
-            if recent_features is None:
-                return None, None
-            recent_env_arr.append(recent_features)
-        
+            if recent_features is not None:
+                recent_env_arr.append(recent_features)
+
+        if len(recent_env_arr) == 0:
+            print("Skipping: None of current frames is 1")
+            return None, None
+        elif len(recent_env_arr) < len(recent_frames):
+            random_arr = np.random.randint(0, len(recent_env_arr), len(recent_frames) - len(recent_env_arr))
+            for nums in random_arr:
+                recent_env_arr.append(recent_env_arr[nums])       
+       
+        #skipped_frames = []
         for i in range(len(past_frames)):
             past_features = get_max_pooled_features(e, past_frames[i])
-            if past_features is None:
-                return None, None
-            past_env_arr.append(past_features)
+            if past_features is not None:
+                past_env_arr.append(past_features)
+            # else:
+            #     skipped_frames.append(i)
+
+        if len(past_env_arr) == 0:
+            # for ele in skipped_frames:
+            #     print("Skiiped, recent 0", recent_frames[0][0], " to ", recent_frames[0][-1])
+            #     print("Skiiped, ", past_frames[ele][0], " to ", past_frames[ele][-1])
+            print("Skipping: None of past frames is 1")
+            return None, None
+        elif len(past_env_arr) < len(past_frames):
+            random_arr = np.random.randint(0, len(past_env_arr), len(past_frames) - len(past_env_arr))
+            for nums in random_arr:
+                past_env_arr.append(past_env_arr[nums])       
 
         recent_features_arr.append(recent_env_arr)
         past_features_arr.append(past_env_arr)
@@ -164,6 +184,7 @@ class SequenceDataset(data.Dataset):
         self.past_sec = args.past_sec
         self.f_max    = args.f_max
         self.hsplit   = args.hsplit
+        self.take_future = args.take_future
 
         # initialize some lists
         self.ids = [] # action ids
@@ -228,16 +249,23 @@ class SequenceDataset(data.Dataset):
             start_end_curr.append((start_before, end_after))
 
         # Current Features
-        sel_frames_cur_list = [np.linspace(st,  end, self.dim_curr + 1,  dtype=int) for (st, end) in start_end_curr]
+        sel_frames_cur_list = [np.linspace(st,  end, self.dim_curr + 1, dtype=int) for (st, end) in start_end_curr]
         instances_current = []
         for sel_frames_cur in sel_frames_cur_list:
             if (len(sel_frames_cur) == 0):
                 print("sel_frames_cur linespace is 0", start_end_curr)
             instances_current.append(self.__get_frames_from_indices(video, sel_frames_cur))
 
-        # Past Features
-        start_past = max(end_point - (self.fps * self.past_sec), 0)
-        sel_frames_past_list = [np.linspace(start_past, end_point,    dim_p + 1,  dtype=int) for dim_p in self.dim_past_list]
+        # Past Fea1tures
+        sel_frames_past_list = []
+        if self.take_future == False:
+            start_past = max(end_point - (self.fps * self.past_sec), 0)
+            sel_frames_past_list = [np.linspace(start_past, end_point,    dim_p + 1,  dtype=int) for dim_p in self.dim_past_list]
+        else:
+            past_sec_by_2 = self.past_sec // 2
+            start_past = max(end_point - (self.fps * (self.past_sec - past_sec_by_2)), 0)
+            end_past   = end_point + (self.fps * past_sec_by_2)
+            sel_frames_past_list = [np.linspace(start_past, end_past, dim_p + 1, dtype=int) for dim_p in self.dim_past_list]
 
         instances_past = []
         for sel_frames_past in sel_frames_past_list:
