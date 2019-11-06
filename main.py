@@ -33,11 +33,12 @@ parser.add_argument('--img_tmpl',        type=str,   default='frame_{:010d}.jpg'
 parser.add_argument('-l','--fusion_list',action='append', help='<Required> Set flag', required=False)
 parser.add_argument('--resume',          action='store_true', help='Whether to resume suspended training')
 
-parser.add_argument('--modality',        type=str,   default='late_fusion', choices=['rgb', 'flow', 'obj', 'fusion', 'late_fusion'],  help = "Modality. Rgb/flow/obj represent single branches, whereas fusion indicates the whole model with modality attention.")
+parser.add_argument('--modality',        type=str,   default='late_fusion', choices=['rgb', 'flow', 'obj', 'fusion', 'late_fusion', 'audio'],  help = "Modality. Rgb/flow/obj represent single branches, whereas fusion indicates the whole model with modality attention.")
 parser.add_argument('--best_model',      type=str,  default='best', help='') # 'best' 'last'
 parser.add_argument('--weight_rgb',      type=float, default=5, help='')
 parser.add_argument('--weight_flow',     type=float, default=5, help='')
-parser.add_argument('--weight_obj',      type=float, default=3, help='')
+parser.add_argument('--weight_obj',      type=float, default=5, help='')
+parser.add_argument('--weight_audio',    type=float, default=0, help='')
 
 parser.add_argument('--num_class',       type=int,   default=2513, help='Number of classes')
 parser.add_argument('--num_workers',     type=int,   default=4,    help="Number of parallel thread to fetch the data")
@@ -107,6 +108,11 @@ if args.modality == "fusion":
     print(args.fusion_list)
     print("HSplit array ", args.hsplit)
 
+if args.modality == "late_fusion":
+    if args.fusion_list is None:
+        args.fusion_list = ['rgb', 'flow', 'obj']
+    print("Taking modalities = ", args.fusion_list)
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def make_model_name(argument):
@@ -146,6 +152,15 @@ if args.modality == 'late_fusion': # Considering args parameters from object mod
     args_flow.dim_curr = 2
     exp_flow_name      = make_model_name(args_flow)
 
+    args_audio          = copy.deepcopy(args_rgb)
+    args_audio.video_feat_dim = 735
+    # args_audio.dim_past_list = [5, 3, 2]
+    # args_audio.dim_curr = 2
+    exp_audio_name      = make_model_name(args_audio)
+
+    args_dict = {'rgb': args_rgb, 'flow': args_flow, 'audio': args_audio, 'obj': args}
+    args_name_dict = {'rgb': exp_rgb_name, 'flow': exp_flow_name, 'audio': exp_audio_name, 'obj': exp_name}
+    weights_dict = {'rgb': args.weight_rgb, 'flow': args.weight_flow, 'audio': args.weight_audio, 'obj':args.weight_obj}
 
 def get_loader(mode, override_modality = None):
     global list_of_envs
@@ -186,24 +201,17 @@ def get_model():
     if not args.modality == 'late_fusion' :
         return Network(args)
     elif args.modality == 'late_fusion':
-        obj_model = Network(args)
-        rgb_model = Network(args_rgb)
-        flow_model = Network(args_flow)
-        if args.best_model == 'best' :
-            print('args.best_model == True')
-            checkpoint_rgb = torch.load(join(args.path_to_models, exp_rgb_name.replace('late_fusion','rgb') +'_best.pth.tar'))['state_dict']
-            checkpoint_flow = torch.load(join(args.path_to_models,exp_flow_name.replace('late_fusion','flow') +'_best.pth.tar'))['state_dict']
-            checkpoint_obj = torch.load(join(args.path_to_models, exp_name.replace('late_fusion','obj') +'_best.pth.tar'))['state_dict']
-        else:
-            print('args.best_model == False')
-            checkpoint_rgb = torch.load(join(args.path_to_models, exp_rgb_name.replace('late_fusion','rgb') +'.pth.tar'))['state_dict']
-            checkpoint_flow = torch.load(join(args.path_to_models,exp_flow_name.replace('late_fusion','flow') +'.pth.tar'))['state_dict']
-            checkpoint_obj = torch.load(join(args.path_to_models, exp_name.replace('late_fusion','obj') +'.pth.tar'))['state_dict']
+        model_dict = {}
+        for mode_f in args.fusion_list:
+            model_dict[mode_f] = Network(args_dict[mode_f])
+            end_path = '.pth.tar'
+            if args.best_model == 'best':
+                print('args.best_model == True')
+                end_path = '_best.pth.tar'
+            checkpoint = torch.load(join(args.path_to_models, args_name_dict[mode_f].replace('late_fusion', mode_f) + end_path))['state_dict']
+            model_dict[mode_f].load_state_dict(checkpoint)
+        return model_dict
 
-        rgb_model.load_state_dict(checkpoint_rgb)
-        flow_model.load_state_dict(checkpoint_flow)
-        obj_model.load_state_dict(checkpoint_obj)
-        return [rgb_model, flow_model, obj_model]
 
 
 def load_checkpoint(model, best=False):
@@ -254,23 +262,11 @@ def get_scores_late_fusion(models, loaders):
     verb_scores = []
     noun_scores = []
     action_scores = []
-    for model, loader in zip(models, loaders):
-        outs = get_scores(model, loader)
-        verb_scores.append(outs[0])
-        noun_scores.append(outs[1])
-        action_scores.append(outs[2])
-
-    verb_scores[0] = verb_scores[0] * args.weight_rgb
-    verb_scores[1] = verb_scores[1] * args.weight_flow
-    verb_scores[2] = verb_scores[2] * args.weight_obj
-
-    noun_scores[0] = noun_scores[0] * args.weight_rgb
-    noun_scores[1] = noun_scores[1] * args.weight_flow
-    noun_scores[2] = noun_scores[2] * args.weight_obj
-
-    action_scores[0] = action_scores[0] * args.weight_rgb
-    action_scores[1] = action_scores[1] * args.weight_flow
-    action_scores[2] = action_scores[2] * args.weight_obj
+    for mode_f in args.fusion_list:
+        outs = get_scores(models[mode_f], loaders[mode_f])
+        verb_scores.append(outs[0] * weights_dict[mode_f])
+        noun_scores.append(outs[1] * weights_dict[mode_f])
+        action_scores.append(outs[2] * weights_dict[mode_f])
 
     verb_scores = sum(verb_scores)
     noun_scores = sum(noun_scores)
@@ -485,8 +481,9 @@ def get_many_shot():
 
 def main():
     model = get_model()
-    if type(model) == list:
-        model = [m.to(device) for m in model]
+    if type(model) == dict:
+        for m in model.keys():
+            model[m].to(device)
     else:
         model.to(device)
 
@@ -508,7 +505,9 @@ def main():
 
     elif args.mode == 'validate':
         if args.modality == 'late_fusion':
-            loaders = [get_loader('validation', 'rgb'), get_loader('validation', 'flow'), get_loader('validation', 'obj')]
+            loaders = {}
+            for fuse_mode in args.fusion_list:
+                loaders[fuse_mode] = get_loader('validation', fuse_mode)
             verb_scores, noun_scores, action_scores, verb_labels, noun_labels, action_labels = get_scores_late_fusion(model, loaders)
         else:
             epoch, perf, _ = load_checkpoint(model, best=True)
@@ -535,8 +534,10 @@ def main():
     elif args.mode == 'test':
         for m in ['seen','unseen']:
             if args.modality == 'late_fusion':
-                loaders = [get_loader("test_{}".format(m), 'rgb'), get_loader("test_{}".format(m), 'flow'), get_loader("test_{}".format(m), 'obj')]
-                discarded_ids = loaders[0].dataset.discarded_ids
+                loaders = {}
+                for fuse_mode in args.fusion_list:
+                    loaders[fuse_mode] = get_loader('validation', fuse_mode)
+                discarded_ids = loaders[args.fusion_list[0]].dataset.discarded_ids
                 verb_scores, noun_scores, action_scores, ids = get_scores_late_fusion(model, loaders)
             else:
                 loader = get_loader("test_{}".format(m))

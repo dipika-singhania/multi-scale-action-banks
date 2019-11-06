@@ -350,6 +350,7 @@ class SequenceDataset(data.Dataset):
             else:
                 #if the sequence is invalid, do nothing, but add the id to the discarded_ids list
                 self.discarded_ids.append(a.name)
+                print("Invalid sequence ", a.name, "Video =", a.video)
 
     def __len__(self):
         return len(self.ids)
@@ -375,6 +376,7 @@ class SequenceDataset(data.Dataset):
                                                                      self.f_max, self.hsplit)
 
         if out['recent_features'] is None and out['past_features'] is None:
+            print("Id discarded = ", self.ids[index])
             return None
 
         # get the label of the current sequence
