@@ -1,4 +1,4 @@
-name: rulstm
+name: multi_scale
 channels:
   - defaults
 dependencies:
