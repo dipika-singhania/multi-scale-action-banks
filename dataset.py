@@ -71,13 +71,13 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
             past_features = get_max_pooled_features(e, past_frames[i])
             if past_features is not None:
                 past_env_arr.append(past_features)
-            # else:
-            #     skipped_frames.append(i)
+            else:
+                skipped_frames.append(i)
 
         if len(past_env_arr) == 0:
-            # for ele in skipped_frames:
-            #     print("Skiiped, recent 0", recent_frames[0][0], " to ", recent_frames[0][-1])
-            #     print("Skiiped, ", past_frames[ele][0], " to ", past_frames[ele][-1])
+            for ele in skipped_frames:
+                print("Skiiped, recent 0", recent_frames[0][0], " to ", recent_frames[0][-1])
+                print("Skiiped, ", past_frames[ele][0], " to ", past_frames[ele][-1])
             print("Skipping: None of past frames is 1")
             return None, None
         elif len(past_env_arr) < len(past_frames):
@@ -276,27 +276,56 @@ class SequenceDataset(data.Dataset):
 
         return instances_current, instances_past
 
-    def __get_action_bank_features(self, point, video):
+    def __get_action_bank_features(self, point, video, time_leap):
         """Samples frames before the beginning of the action "point" """
-        # subtract time stamps to the timestamp of the last frame
-        end_past    = point - (self.time_stamps * self.fps)
+        if point <= (time_leap + self.curr_sec_list[0]) * self.fps:  # Need atleast 1 sec video before the actual action
+            return None, None
+        end_past    = point - (time_leap * self.fps)
         end_current = end_past
 
         # Current Features
         instances_current   = []
         start_current_list  = [max(end_past - ele * self.rel_sec * self.fps,  0) for ele in self.curr_sec_list]
-        sel_frames_cur_list = [np.linspace(ele,  end_current, self.dim_curr + 1,  dtype=int) for ele in start_current_list]
+        # for ele in self.curr_sec_list:
+        #     if end_current < 0 or ele < 0 or ele >= end_current:
+        #         import pdb
+        #         pdb.set_trace()
+        sel_frames_cur_list = [np.linspace(ele, end_current, self.dim_curr + 1, dtype=int) for ele in start_current_list]
         for sel_frames_cur in sel_frames_cur_list:
             instances_current.append(self.__get_frames_from_indices(video, sel_frames_cur))
 
         # Past Features
         instances_past       = []
         start_past           = max(end_past - (self.past_sec * self.rel_sec * self.fps), 0)
-        sel_frames_past_list = [np.linspace(start_past,     end_past,    dim_p + 1,  dtype=int) for dim_p in self.dim_past_list]
+        sel_frames_past_list = [np.linspace(start_past, end_past, dim_p + 1, dtype=int) for dim_p in self.dim_past_list]
+        # if start_past < 0 or end_past < 0 or start_past >= end_past:
+        #     import pdb
+        #     pdb.set_trace()
         for sel_frames_past in sel_frames_past_list:
             instances_past.append(self.__get_frames_from_indices(video, sel_frames_past))
 
         return instances_current, instances_past
+
+    def __add_to_list(self, a, past_f, present_f, id_name):
+        if past_f is not None and present_f is not None: # if the smaller frame is at least 1, the sequence is valid
+            self.recent_frames.append(present_f)
+            self.past_frames.append(past_f)
+            self.ids.append(id_name)
+            if isinstance(self.label_type, list):
+                if self.challenge: # if sampling for the challenge, there are no labels, just add -1
+                    self.labels.append(-1)
+                else:
+                    # otherwise get the required labels
+                    self.labels.append(a[self.label_type].values.astype(int))
+            else: #single label version
+                if self.challenge:
+                    self.labels.append(-1)
+                else:
+                    self.labels.append(a[self.label_type])
+        else:
+            #if the sequence is invalid, do nothing, but add the id to the discarded_ids list
+            self.discarded_ids.append(a.name)
+            print("Invalid sequence ", a.name, "Video =", a.video)
 
     def __populate_lists(self):
         count = 0
@@ -307,50 +336,29 @@ class SequenceDataset(data.Dataset):
             #     break
             # sample frames before the beginning of the action
             if self.task == 'anticipation':
-                current_f, past_f = self.__get_action_bank_features(a.start, a.video)
+                if isinstance(self.time_step, list):
+                    for time_alpha in self.time_step:
+                        id_temp = str(a.name) + "_" + str(time_alpha)
+                        current_f, past_f = self.__get_action_bank_features(a.start, a.video, float(time_alpha))
+                        self.__add_to_list(a, past_f, current_f, id_temp)
+                else:
+                    current_f, past_f = self.__get_action_bank_features(a.start, a.video, float(self.time_step))
+                    self.__add_to_list(a, past_f, current_f, a.name)
+                    
             elif self.task == 'recognition':
                 current_f, past_f = self.__get_action_bank_recognition_features(a.start, a.end, a.video)
-            # print("Count = %d", count)
-            # check if there were enough frames before the beginning of the action
-            if past_f is not None and current_f is not None: # if the smaller frame is at least 1, the sequence is valid
+                # print("Count = %d", count)
+                # check if there were enough frames before the beginning of the action
                 if self.multi_samples == 0:
-                    self.past_frames.append(past_f)
-                    self.recent_frames.append(current_f)
-                    self.ids.append(a.name)
-                    # handle whether a list of labels is required (e.g., [verb, noun]), rather than a single action
-                    if isinstance(self.label_type, list):
-                        if self.challenge: # if sampling for the challenge, there are no labels, just add -1
-                            self.labels.append(-1)
-                        else:
-                            # otherwise get the required labels
-                            self.labels.append(a[self.label_type].values.astype(int))
-                    else: #single label version
-                        if self.challenge:
-                            self.labels.append(-1)
-                        else:
-                            self.labels.append(a[self.label_type])
+                    self.__add_to_list(a, past_f, current_f, a.name)
                 else:
-                    for i in range(self.multi_samples):
-                        self.past_frames.append(past_f)
-                        self.recent_frames.append(current_f)
-                        self.ids.append(str(i) + "_" + str(a.name))
-                        # handle whether a list of labels is required (e.g., [verb, noun]), rather than a single action
-                        if isinstance(self.label_type, list):
-                            if self.challenge: # if sampling for the challenge, there are no labels, just add -1
-                                self.labels.append(-1)
-                            else:
-                                # otherwise get the required labels
-                                self.labels.append(a[self.label_type].values.astype(int))
-                        else: #single label version
-                            if self.challenge:
-                                self.labels.append(-1)
-                            else:
-                                self.labels.append(a[self.label_type])
+                    if current_f is not None and past_f is not None:
+                        for i in range(self.multi_samples):
+                            id_name = str(i) + "_" + str(a.name)
+                            self.__add_to_list(a, past_f, current_f, id_name)
+                    else:
+                        self.__add_to_list(a, past_f, current_f, a.name)
                         
-            else:
-                #if the sequence is invalid, do nothing, but add the id to the discarded_ids list
-                self.discarded_ids.append(a.name)
-                print("Invalid sequence ", a.name, "Video =", a.video)
 
     def __len__(self):
         return len(self.ids)

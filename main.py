@@ -28,14 +28,16 @@ parser.add_argument('path_to_models',   type=str,   help="Path to the directory 
 
 parser.add_argument('--json_directory',  type=str,   default = None, help = 'Directory in which to save the generated jsons.')
 parser.add_argument('--task',            type=str,   default='anticipation', choices=['anticipation', 'recognition'], help='Task to tackle: anticipation or early recognition')
-parser.add_argument('--alpha',           type=float, default=1,    help="Distance between time-steps in seconds")
+parser.add_argument('-a', '--alpha',     action='append', help="Distance between time-steps in seconds")
 parser.add_argument('--img_tmpl',        type=str,   default='frame_{:010d}.jpg', help='Template to use to load the representation of a given frame')
 parser.add_argument('-l','--fusion_list',action='append', help='<Required> Set flag', required=False)
 parser.add_argument('--resume',          action='store_true', help='Whether to resume suspended training')
 
-parser.add_argument('--modality',        type=str,   default='late_fusion', choices=['rgb', 'flow', 'obj', 'fusion', 'late_fusion', 'audio'],  help = "Modality. Rgb/flow/obj represent single branches, whereas fusion indicates the whole model with modality attention.")
+parser.add_argument('--modality',        type=str,   default='late_fusion', choices=['rgb', 'flow', 'obj', 'fusion', 'late_fusion', 'audio', 'rgb_resnet', 'rgb_RU', 'rgb_BN_TBN'],  help = "Modality. Rgb/flow/obj represent single branches, whereas fusion indicates the whole model with modality attention.")
 parser.add_argument('--best_model',      type=str,  default='best', help='') # 'best' 'last'
 parser.add_argument('--weight_rgb',      type=float, default=5, help='')
+parser.add_argument('--weight_rgb_RU',      type=float, default=5, help='')
+parser.add_argument('--weight_rgb_BN_TBN',      type=float, default=5, help='')
 parser.add_argument('--weight_flow',     type=float, default=5, help='')
 parser.add_argument('--weight_obj',      type=float, default=5, help='')
 parser.add_argument('--weight_audio',    type=float, default=0, help='')
@@ -74,6 +76,7 @@ parser.add_argument('--noun_class', type=int, default=352, help='')
 parser.add_argument('-s', '--samples_envs', action='append', type=str, help='path_to_data=/mnt/data/epic_kitchen/data/,\
                      -s=sample1 new_path=/mnt/data/epic_kitchen/sample1/', required=False)
 parser.add_argument('--take_future', action='store_true', help="Whether to consider -5+5 etc combination")
+parser.add_argument('--val_sec', type=float, help="Alpha for validation sec", required=False)
 args = parser.parse_args()
 
 if len(args.curr_sec_list) == 0:
@@ -133,6 +136,15 @@ def make_model_name(argument):
         exp_name = exp_name + '_' + string_of_env
     if argument.take_future:
         exp_name = exp_name + "_tf"
+    if argument.alpha and args.task == "anticipation":
+        if isinstance(argument.alpha, list):
+            exp_name = exp_name + "_".join(map(str, argument.alpha))
+        else:
+            exp_name = exp_name + str(argument.alpha)
+    if argument.path_to_data:        
+        dirname = os.path.dirname(args.path_to_data)
+        base_directory_name = os.path.basename(dirname)
+        exp_name = exp_name + base_directory_name
 
     exp_name = exp_name + '_ms_bank'
     return exp_name
@@ -144,23 +156,38 @@ print("Store file name ", exp_name)
 if args.modality == 'late_fusion': # Considering args parameters from object model
     assert (args.mode != 'train' and args.mode != 'train_val')
     args_rgb = copy.deepcopy(args)
-    args_rgb.video_feat_dim = 1024
+    args_rgb.video_feat_dim = 1000
     args_rgb.dim_curr = 2
     exp_rgb_name      = make_model_name(args_rgb)
 
+    args_rgb_RU = copy.deepcopy(args)
+    args_rgb_RU.video_feat_dim = 1024
+    args_rgb_RU.dim_curr = 2
+    exp_rgb_name_RU = make_model_name(args_rgb_RU)
+
+    args_rgb_BN_TBN = copy.deepcopy(args)
+    args_rgb_BN_TBN.video_feat_dim = 1024
+    args_rgb_BN_TBN.dim_curr = 2
+    exp_rgb_name_BN_TBN = make_model_name(args_rgb_BN_TBN)
+
     args_flow          = copy.deepcopy(args_rgb)
+    args_flow.video_feat_dim = 1024
     args_flow.dim_curr = 2
     exp_flow_name      = make_model_name(args_flow)
 
     args_audio          = copy.deepcopy(args_rgb)
-    args_audio.video_feat_dim = 735
-    # args_audio.dim_past_list = [5, 3, 2]
-    # args_audio.dim_curr = 2
+    args_audio.video_feat_dim = 1024
+    args_audio.dim_past_list = [5, 3, 2]
+    args_audio.dim_curr = 2
+    args_audio.curr_sec_list = [0, 1, 2]
+    args_audio.past_sec = 10
     exp_audio_name      = make_model_name(args_audio)
 
-    args_dict = {'rgb': args_rgb, 'flow': args_flow, 'audio': args_audio, 'obj': args}
-    args_name_dict = {'rgb': exp_rgb_name, 'flow': exp_flow_name, 'audio': exp_audio_name, 'obj': exp_name}
-    weights_dict = {'rgb': args.weight_rgb, 'flow': args.weight_flow, 'audio': args.weight_audio, 'obj':args.weight_obj}
+    args_dict = {'rgb': args_rgb, 'flow': args_flow, 'audio': args_audio, 'obj': args, 'rgb_RU': args_rgb_RU, 'rgb_BN_TBN': args_rgb_RU}
+    args_name_dict = {'rgb': exp_rgb_name, 'flow': exp_flow_name, 'audio': exp_audio_name, 'obj': exp_name, \
+                      'rgb_RU': exp_rgb_name_RU, 'rgb_BN_TBN': exp_rgb_name_BN_TBN}
+    weights_dict = {'rgb': args.weight_rgb, 'flow': args.weight_flow, 'audio': args.weight_audio, 'obj':args.weight_obj, 'rgb_RU': args.weight_rgb_RU,
+                    'rgb_BN_TBN': args.weight_rgb_BN_TBN}
 
 def get_loader(mode, override_modality = None):
     global list_of_envs
@@ -178,10 +205,15 @@ def get_loader(mode, override_modality = None):
             path_to_lmdb = join(args.path_to_data, args.modality) if args.modality != 'fusion' else [join(args.path_to_data, m) for m in args.fusion_list]
             multi_samples = 0
 
+    if mode != 'training' and args.val_sec is not None:
+        alpha = args.val_sec
+    else:
+        alpha = args.alpha
+
     kargs = {
         'path_to_lmdb': path_to_lmdb,
         'path_to_csv': join(args.path_to_data, "{}.csv".format(mode)),
-        'time_step': args.alpha,
+        'time_step': alpha,
         'img_tmpl': args.img_tmpl,
         'task': args.task,
         'sequence_length': 1,
@@ -536,7 +568,7 @@ def main():
             if args.modality == 'late_fusion':
                 loaders = {}
                 for fuse_mode in args.fusion_list:
-                    loaders[fuse_mode] = get_loader('validation', fuse_mode)
+                    loaders[fuse_mode] = get_loader("test_{}".format(m), fuse_mode)
                 discarded_ids = loaders[args.fusion_list[0]].dataset.discarded_ids
                 verb_scores, noun_scores, action_scores, ids = get_scores_late_fusion(model, loaders)
             else:
