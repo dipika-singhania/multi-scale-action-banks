@@ -56,15 +56,10 @@ parser.add_argument('--batch_size',      type=int,   default=10,   help="Batch S
 parser.add_argument('--epochs',          type=int,   default=45,   help="Training epochs")
 
 parser.add_argument('--past_sec',        type=float, default=5,    help='') #
-parser.add_argument('--dim_past1',       type=int,   default=6,    help='') #
-parser.add_argument('--dim_past2',       type=int,   default=4,    help='') #
-parser.add_argument('--dim_past3',       type=int,   default=2,    help='')
+parser.add_argument('-p','--dim_past_list', action='append', type=int, help='Past seconds to be taken into account', required=False)
 
 parser.add_argument('--dim_curr',        type=int,   default=2,    help='')
-parser.add_argument('--curr_seconds1',   type=float, default=2,    help='')
-parser.add_argument('--curr_seconds2',   type=float, default=1.5,  help='') #
-parser.add_argument('--curr_seconds3',   type=float, default=1,    help='') #
-parser.add_argument('--curr_seconds4',   type=float, default=0.5,  help='') #
+parser.add_argument('-c','--curr_sec_list', action='append', type=float, help='current seconds to be taken into account', required=False)
 
 parser.add_argument('--latent_dim',      type=int,   default=512,  help='')
 parser.add_argument('--linear_dim',      type=int,   default=512,  help='')
@@ -76,6 +71,14 @@ parser.add_argument('--add_noun_loss',   action='store_true', help='Whether to t
 parser.add_argument('--noun_class', type=int, default=352, help='')
 
 args = parser.parse_args()
+
+if len(args.curr_sec_list) == 0:
+    args.curr_sec_list = [2, 1.5, 1, 0.5]
+
+if len(args.dim_past_list) == 0:
+    args.dim_past_list = [5, 3, 2]
+
+print(args)
 
 if args.mode == 'test':
     assert args.json_directory is not None
@@ -90,9 +93,13 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def make_model_name(argument):
     if argument.task == 'anticipation':
-        exp_name = "ab_mod_{}_past_{}_dp1_{}_dp2_{}_dp3_{}_dc_{}_cur1_{}_cur2_{}_cur3_{}_cur4_{}_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
-                    argument.modality, argument.past_sec, argument.dim_past1, argument.dim_past2, argument.dim_past3, argument.dim_curr, argument.curr_seconds1, argument.curr_seconds2, argument.curr_seconds3, args.curr_seconds4,
-                    argument.schedule_epoch, argument.batch_size, argument.epochs, argument.dropout_rate, argument.dropout_linear, argument.lr, argument.latent_dim, argument.linear_dim)
+        exp_name = "ab_mod_{}_past_{}".format(argument.modality, argument.past_sec)
+        exp_name = exp_name + "_" + "_".join(['dp{}_{}'.format(i, num) for i, num in enumerate(args.dim_past_list)])
+        exp_name = exp_name + "_dc_{}".format(args.dim_curr)
+        exp_name = exp_name + "_" + "_".join(['cur{}_{}'.format(i, num) for i, num in enumerate(args.curr_sec_list)])
+        exp_name = exp_name + "_sch_{}_bs_{}_ep_{}_drn_{}_drl_{}_lr_{}_dimLa_{}_dimLi_{}".format(
+                    argument.schedule_epoch, argument.batch_size, argument.epochs, argument.dropout_rate,
+                    argument.dropout_linear, argument.lr, argument.latent_dim, argument.linear_dim)
         if argument.modality == "fusion":
             exp_name = exp_name + "_".join(argument.fusion_list)
         if argument.add_verb_loss:
@@ -106,9 +113,6 @@ def make_model_name(argument):
 
 exp_name = make_model_name(args)
 print("Store file name ", exp_name)
-
-print("Printing Arguments ")
-print(args)
 
 if args.modality == 'late_fusion': # Considering args parameters from object model
     assert (args.mode != 'train' and args.mode != 'train_val')
@@ -191,9 +195,12 @@ def save_model(model, epoch, perf, best_perf, is_best=False):
             args.path_to_models, exp_name + '_best.pth.tar'))
 
 
-def log(mode, epoch, loss_meter, accuracy_meter, accuracy_future, accuracy_future1, accuracy_future2, action_loss, verb_loss, noun_loss, best_perf=None, green=False):
+def log(mode, epoch, loss_meter, accuracy_meter, accuracy_future_list, action_loss, verb_loss, noun_loss, best_perf=None, green=False):
     if green:
         print('\033[92m', end="")
+    str_accuracy = []
+    for i, accuracy_future in enumerate(accuracy_future_list):
+        str_accuracy.append("Accuracy Future{}: {:.2f}% ".format(i, accuracy_future.value()))
     print(
             "[{}] Epoch: {:.2f}. ".format(mode, epoch),
             "Total Loss: {:.2f}. ".format(loss_meter.value()),
@@ -201,9 +208,7 @@ def log(mode, epoch, loss_meter, accuracy_meter, accuracy_future, accuracy_futur
             "Verb Loss: {:.2f}. ".format(verb_loss.value()),
             "Noun Loss: {:.2f}. ".format(noun_loss.value()),
             "Accuracy: {:.2f}% ".format(accuracy_meter.value()),
-            "Accuracy Future: {:.2f}% ".format(accuracy_future.value()),
-            "Accuracy Future1: {:.2f}% ".format(accuracy_future1.value()),
-            "Accuracy Future2: {:.2f}% ".format(accuracy_future2.value()), end="")
+            ",".join(str_accuracy), end="")
 
     if best_perf:
         print("[best: {:.2f}]%".format(best_perf), end="")
@@ -263,8 +268,11 @@ def get_scores(model, loader):
 
             ids.append(batch['id'].numpy())
 
-            predict_future, predict_future2, predict_future3, predict_future4, pred_verb, pred_verb1, pred_verb2, pred_verb3, _, _, _, _ = model(x, x_recent)
-            preds = predict_future.detach().cpu().numpy() + predict_future2.detach().cpu().numpy() + predict_future3.detach().cpu().numpy() + predict_future4.detach().cpu().numpy()
+            predict_future_list, predict_verb_list, predict_noun_list = model(x, x_recent)
+
+            preds = 0
+            for pred_f in predict_future_list:
+                preds +=  pred_f.detach().cpu().numpy()
 
             predictions.append(preds)
             labels.append(y)
@@ -280,8 +288,8 @@ def get_scores(model, loader):
 
     action_probs = softmax(action_scores.reshape(-1, action_scores.shape[-1]))
 
-    verb_scores = marginalize(action_probs, vi) # .reshape( action_scores.shape[0], action_scores.shape[1], -1)
-    noun_scores = marginalize(action_probs, ni) # .reshape( action_scores.shape[0], action_scores.shape[1], -1)
+    verb_scores = marginalize(action_probs, vi) 
+    noun_scores = marginalize(action_probs, ni) 
 
 
     if labels.max() > 0:
@@ -293,33 +301,23 @@ def get_scores(model, loader):
 def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, schedule_on):
     """Training/Validation code"""
     best_perf = start_best_perf  # to keep track of the best performing epoch
-    loss_func_future = nn.CrossEntropyLoss()
-    loss_func_future2 = nn.CrossEntropyLoss()
-    loss_func_future3 = nn.CrossEntropyLoss()
-    loss_func_future4 = nn.CrossEntropyLoss()
+    loss_func_future_list = [nn.CrossEntropyLoss() for _ in range(len(args.curr_sec_list))]
     if args.add_verb_loss:
-        loss_func_verb = nn.CrossEntropyLoss()
-        loss_func_verb2 = nn.CrossEntropyLoss()
-        loss_func_verb3 = nn.CrossEntropyLoss()
-        loss_func_verb4 = nn.CrossEntropyLoss()
+        loss_func_verb_list = [nn.CrossEntropyLoss() for _ in range(len(args.curr_sec_list))]
     if args.add_noun_loss:
-        loss_func_noun = nn.CrossEntropyLoss()
-        loss_func_noun2 = nn.CrossEntropyLoss()
-        loss_func_noun3 = nn.CrossEntropyLoss()
-        loss_func_noun4 = nn.CrossEntropyLoss()
+        loss_func_noun_list = [nn.CrossEntropyLoss() for _ in range(len(args.curr_sec_list))]
 
     for epoch in range(start_epoch, epochs):
         if schedule_on is not None:
             schedule_on.step()
         # define training and validation meters
-        loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        action_loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        verb_loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        noun_loss_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        accuracy_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        accuracy_future_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        accuracy_future1_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
-        accuracy_future2_meter = {'training': ValueMeter(), 'validation': ValueMeter()}
+        loss_meter                 = {'training': ValueMeter(), 'validation': ValueMeter()}
+        action_loss_meter          = {'training': ValueMeter(), 'validation': ValueMeter()}
+        verb_loss_meter            = {'training': ValueMeter(), 'validation': ValueMeter()}
+        noun_loss_meter            = {'training': ValueMeter(), 'validation': ValueMeter()}
+        accuracy_meter             = {'training': ValueMeter(), 'validation': ValueMeter()}
+        accuracy_future_meter_list = {'training': [ValueMeter() for _ in range(len(args.curr_sec_list))], 
+                                      'validation': [ValueMeter() for _ in range(len(args.curr_sec_list))]}
 
         for mode in ['training', 'validation']:
             # enable gradients only if training
@@ -349,19 +347,18 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
 
                     bs = y.shape[0]  # batch size
 
-                    predict_future, predict_future2, predict_future3, predict_future4, output_verb_future, output_verb_future2, output_verb_future3, output_verb_future4, output_noun_future, output_noun_future2, output_noun_future3, output_noun_future4  = model(x, x_recent)
+                    predict_future_list, predict_verb_list, predict_noun_list = model(x, x_recent)
 
-                    loss = loss_func_future(predict_future, y[:, 2]) +\
-                            loss_func_future2(predict_future2, y[:, 2]) +\
-                            loss_func_future3(predict_future3, y[:, 2])+\
-                            loss_func_future4(predict_future4, y[:, 2])
+
+                    loss = 0
+                    for j in range(len(predict_future_list)):
+                        loss += loss_func_future_list[j](predict_future_list[j], y[:, 2])
                     action_loss_meter[mode].add(loss.item(), bs)
 
                     if args.add_verb_loss:
-                        verb_loss = loss_func_verb(output_verb_future, y[:, 0]) +\
-                                    loss_func_verb2(output_verb_future2, y[:, 0]) +\
-                                    loss_func_verb3(output_verb_future3, y[:, 0]) +\
-                                    loss_func_verb4(output_verb_future4, y[:, 0])
+                        verb_loss = 0
+                        for j in range(len(predict_verb_list)):
+                            verb_loss += loss_func_verb_list[j](predict_verb_list[j], y[:, 0])
                         verb_loss_meter[mode].add(verb_loss.item(), bs)
                         loss      = loss + verb_loss
                     else:
@@ -369,10 +366,9 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
                         
 
                     if args.add_noun_loss:
-                        noun_loss = loss_func_noun(output_noun_future, y[:, 1]) +\
-                                    loss_func_noun2(output_noun_future2, y[:, 1]) +\
-                                    loss_func_noun3(output_noun_future3, y[:, 1]) +\
-                                    loss_func_noun4(output_noun_future4, y[:, 1])
+                        noun_loss = 0
+                        for j in range(len(predict_noun_list)):
+                            noun_loss += loss_func_noun_list[j](predict_noun_list[j], y[:, 1])
                         noun_loss_meter[mode].add(noun_loss.item(), bs)
                         loss      = loss + noun_loss
                     else:
@@ -382,14 +378,12 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
                     # use top-5 for anticipation and top-1 for early recognition
                     k = 5 if args.task == 'anticipation' else 1
 
-                    acc_future  = topk_accuracy(predict_future.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0]*100
-                    accuracy_future_meter[mode].add(acc_future, bs)
-                    acc_future1 = topk_accuracy(predict_future2.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0]*100
-                    accuracy_future1_meter[mode].add(acc_future1, bs)
-                    acc_future2 = topk_accuracy(predict_future3.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0]*100
-                    accuracy_future2_meter[mode].add(acc_future2, bs)
+                    preds = 0
+                    for j, pred_f in enumerate(predict_future_list):
+                        acc_future  = topk_accuracy(pred_f.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0] * 100
+                        accuracy_future_meter_list[mode][j].add(acc_future, bs)
+                        preds += pred_f.detach()
 
-                    preds = predict_future.detach() + predict_future2.detach() + predict_future3.detach()+ predict_future4.detach()
                     acc = topk_accuracy(preds.detach().cpu().numpy(), y[:, 2].detach().cpu().numpy(), (k,))[0] * 100
 
                     # store the values in the meters to keep incremental averages
@@ -408,12 +402,12 @@ def trainval(model, loaders, optimizer, epochs, start_epoch, start_best_perf, sc
                     # log training during loop
                     # avoid logging the very first batch. It can be biased.
                     if mode == 'training' and i != 0 and i % args.display_every == 0:
-                        log(mode, e, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter[mode], accuracy_future1_meter[mode], 
-                            accuracy_future2_meter[mode], action_loss_meter[mode], verb_loss_meter[mode], noun_loss_meter[mode])
+                        log(mode, e, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter_list[mode], 
+                            action_loss_meter[mode], verb_loss_meter[mode], noun_loss_meter[mode])
 
                 # log at the end of each epoch
-                log(mode, epoch + 1, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter[mode], accuracy_future1_meter[mode], accuracy_future2_meter[mode],
-                    action_loss_meter[mode], verb_loss_meter[mode], noun_loss_meter[mode], max(accuracy_meter[mode].value(), best_perf) if mode == 'validation' else None, green=True)
+                log(mode, epoch + 1, loss_meter[mode], accuracy_meter[mode], accuracy_future_meter_list[mode], action_loss_meter[mode], 
+                    verb_loss_meter[mode], noun_loss_meter[mode], max(accuracy_meter[mode].value(), best_perf) if mode == 'validation' else None, green=True)
 
 
         if best_perf < accuracy_meter['validation'].value():

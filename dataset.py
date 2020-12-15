@@ -87,33 +87,6 @@ def read_representations(recent_frames, past_frames, env, tran=None, max_pool=Fa
     # print("past features array", (past_features.shape))
     # print("present features array", (recent_features.shape))
 
-#    current.append(recent_features)
-#    past.append(past_features)
-#
-#    current.append(recent_features)
-#    past.append(past_features1)
-#
-#    current.append(recent_features)
-#    past.append(past_features2)
-#
-#    current.append(recent_features1)
-#    past.append(past_features)
-#
-#    current.append(recent_features1)
-#    past.append(past_features1)
-#
-#    current.append(recent_features1)
-#    past.append(past_features2)
-#
-#    current.append(recent_features2)
-#    past.append(past_features)
-#
-#    current.append(recent_features2)
-#    past.append(past_features1)
-#
-#    current.append(recent_features2)
-#    past.append(past_features2)
-
     past.append(past_features)
     past.append(past_features1)
     past.append(past_features2)
@@ -179,14 +152,9 @@ class SequenceDataset(data.Dataset):
         self.sequence_length = sequence_length
         self.img_tmpl = img_tmpl
         self.action_samples = action_samples
-        self.curr_seconds1  = args.curr_seconds1
-        self.curr_seconds2 = args.curr_seconds2
-        self.curr_seconds3 = args.curr_seconds3
-        self.curr_seconds4 = args.curr_seconds4
+        self.curr_sec_list  = args.curr_sec_list
         self.dim_curr      = args.dim_curr
-        self.dim_past1     = args.dim_past1
-        self.dim_past2     = args.dim_past2
-        self.dim_past3     = args.dim_past3
+        self.dim_past_list = args.dim_past_list
         self.rel_sec  = args.rel_sec
         self.past_sec = args.past_sec
         self.f_max    = args.f_max
@@ -248,29 +216,16 @@ class SequenceDataset(data.Dataset):
         start_past = max(end_past - (self.past_sec * self.rel_sec * self.fps), 0)
         # Current Features
 
-        start_current1      = max(end_past - self.curr_seconds1 * self.rel_sec * self.fps,  0)
-        start_current2      = max(end_past - self.curr_seconds2 * self.rel_sec * self.fps,  0)
-        start_current3      = max(end_past - self.curr_seconds3 * self.rel_sec * self.fps,  0)
-        start_current4      = max(end_past - self.curr_seconds4 * self.rel_sec * self.fps,  0)
-        sel_frames_current1 = np.linspace(start_current1,   end_current, self.dim_curr + 1,  dtype=int)
-        sel_frames_current2 = np.linspace(start_current2,  end_current, self.dim_curr + 1,  dtype=int)
-        sel_frames_current3 = np.linspace(start_current3,  end_current, self.dim_curr + 1,  dtype=int)
-        sel_frames_current4 = np.linspace(start_current4,  end_current, self.dim_curr + 1,  dtype=int)
+        start_current_list  = [max(end_past - ele * self.rel_sec * self.fps,  0) for ele in self.curr_sec_list]
+        sel_frames_cur_list     = [np.linspace(ele,  end_current, self.dim_curr + 1,  dtype=int) for ele in start_current_list]
 
         # Past Features
-        sel_frames_past     = np.linspace(start_past,     end_past,    self.dim_past1 + 1,  dtype=int)
-        sel_frames_past2    = np.linspace(start_past,     end_past,    self.dim_past2 + 1,  dtype=int)
-        sel_frames_past3    = np.linspace(start_past,     end_past,    self.dim_past3 + 1,  dtype=int)
+        sel_frames_past_list = [np.linspace(start_past,     end_past,    dim_p + 1,  dtype=int) for dim_p in self.dim_past_list]
+        for sel_frames_cur in sel_frames_cur_list:
+            instances_current.append(self.__get_frames_from_indices(video, sel_frames_cur))
 
-        # start_current + sel_frames_past{,2,3}
-        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current1))
-        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current2))
-        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current3))
-        instances_current.append(self.__get_frames_from_indices(video, sel_frames_current4))
-
-        instances_past.append(self.__get_frames_from_indices(video, sel_frames_past))
-        instances_past.append(self.__get_frames_from_indices(video, sel_frames_past2))
-        instances_past.append(self.__get_frames_from_indices(video, sel_frames_past3))
+        for sel_frames_past in sel_frames_past_list:
+            instances_past.append(self.__get_frames_from_indices(video, sel_frames_past))
 
         return instances_current, instances_past
 
